@@ -276,6 +276,11 @@ app.post('/api/import/csv', upload.single('file'), async (req, res) => {
     // Create token and workspace for this import
     const token = await createToken();
     const workspaceId = await createWorkspace();
+    // Optional account alias provided by the user (e.g. "Girokonto" oder "Sparkonto")
+    // multer.single('file') populates req.body with additional fields
+    const accountAlias = req.body && typeof req.body.account_alias === 'string' && req.body.account_alias.trim().length > 0
+      ? req.body.account_alias.trim()
+      : null;
 
     // Load bank mappings
     const mappings = await loadBankMappings();
@@ -315,7 +320,8 @@ app.post('/api/import/csv', upload.single('file'), async (req, res) => {
       const bookingType = getField(mapping.booking_type);
       const bookingAmountRaw = getField(mapping.amount);
       const bookingAmount = normalizeAmount(bookingAmountRaw);
-      const bookingAccount = row[mapping.booking_account] || '';
+      // booking_account is not defined in bank_mapping; instead use the provided account alias
+      const bookingAccount = accountAlias || '';
       // Anonymize text
       const anonText = anonymizeText(bookingText, rules);
       // Merchant key
@@ -339,14 +345,14 @@ app.post('/api/import/csv', upload.single('file'), async (req, res) => {
         booking_account: bookingAccount,
         booking_hash: hash,
         booking_category: null,
-        account_alias: null,
+        account_alias: accountAlias,
         merchant_key: merchantKey,
         is_income: isIncome,
         currency: null,
       });
     }
-    // Create import batch record
-    const importBatchId = await createImportBatch(workspaceId, token, mapping.bank_name, null, req.file.originalname, transactions.length);
+    // Create import batch record (store account alias if provided)
+    const importBatchId = await createImportBatch(workspaceId, token, mapping.bank_name, accountAlias, req.file.originalname, transactions.length);
     // Insert transactions
     const insertValues = [];
     const placeholders = [];
