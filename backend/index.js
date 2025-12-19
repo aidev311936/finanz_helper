@@ -330,8 +330,14 @@ app.post('/api/import/csv', upload.single('file'), async (req, res) => {
       let amountNum = parseFloat(bookingAmount.replace(/,/g, '.'));
       if (isNaN(amountNum)) amountNum = 0;
       const isIncome = amountNum > 0;
-      // Compute booking hash
-      const hash = computeBookingHash({ booking_date_raw: bookingDateRaw, booking_text: anonText, booking_type: bookingType, booking_amount: bookingAmount, booking_account });
+      // Compute booking hash using the correct bookingAccount value
++      const hash = computeBookingHash({
++        booking_date_raw: bookingDateRaw,
++        booking_text: anonText,
++        booking_type: bookingType,
++        booking_amount: bookingAmount,
++        booking_account: bookingAccount,
++      });
       transactions.push({
         token,
         workspace_id: workspaceId,
