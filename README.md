@@ -28,6 +28,10 @@ Dann öffnen:
 - Web: http://localhost:5173
 - API: http://localhost:8080
 
+### Session / Auth
+
+Das Frontend erstellt beim ersten Laden eine Session über `POST /api/session`, speichert den Token in `localStorage` (`hm_token`) und sendet ihn bei weiteren Requests als Header `x-token`. Dadurch funktionieren Deployments auch ohne Cookie‑Sonderfälle (SameSite/Third‑Party Cookies).
+
 > Postgres läuft als eigener Service im Compose und hat einen Healthcheck. API/Worker starten erst, wenn die DB „ready“ ist.
 
 ## Stop
