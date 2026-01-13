@@ -1,4 +1,4 @@
-# Haushaltmanager (Phase 1 – Step 4: Insights + bessere Abo/Recurring‑Erkennung)
+# Haushaltmanager (Phase 1 – Step 5: Budgets + Alerts + bessere Abo-Erkennung)
 
 Minimaler, lauffähiger Prototyp nach deinem Konzept:
 
@@ -8,6 +8,7 @@ Minimaler, lauffähiger Prototyp nach deinem Konzept:
 - Kategorisierung läuft als **Job** im Worker (ohne Redis) über **austauschbaren LLM‑Provider**
 - Chat Q&A: KI nutzt **Tools (SQL)** auf anonymisierte Umsätze, stellt Rückfragen und liefert Buttons/Datepicker
 - Step 4: zusätzliche **Insights‑Tools** (Monatsübersicht, Top Händler, Fixkosten vs variabel, Sparpotenziale)
+- Step 5: **Budgets** (pro Kategorie), **Alerts** (Budget überschritten + ungewöhnliche Anstiege) und stärkere **Abo/Recurring-Erkennung** (Merchant + Betrag + Intervall)
 
 ## Voraussetzungen
 
@@ -71,3 +72,10 @@ Die wichtigsten ENV‑Variablen stehen in `docker-compose.yml` (bei `api` **und*
 - „Wie hoch waren meine Fixkosten vs variablen Kosten im 2025-09?“
 - „Wo kann ich im 2025-09 sparen?“
 - „Zeig mir alle Abos im 2025-09“
+
+**Step 5 (Budgets & Alerts):**
+
+- „Zeig mir meine Budgets“
+- „Setze ein Budget für Lebensunterhalt>Einkauf>Supermarkt auf 250“
+- „Welche Warnungen gibt es für 2025-09?“
+- „Habe ich doppelte Abos im 2025-09?“

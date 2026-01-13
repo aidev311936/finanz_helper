@@ -147,8 +147,8 @@ Regeln:
 }
 
 async function updateRecurringFlags(token) {
-  // Heuristic: merchant appears in >=3 distinct months (last 18 months) => recurring.
-  // This is intentionally conservative and can be refined later.
+  // Step 4 fallback heuristic (kept for compatibility):
+  // merchant appears in >=3 distinct months (last 18 months) => recurring.
   await pool.query(
     `WITH m AS (
        SELECT merchant_normalized
@@ -167,6 +167,117 @@ async function updateRecurringFlags(token) {
        AND t.merchant_normalized IN (SELECT merchant_normalized FROM m)`,
     [token]
   );
+}
+
+function round2(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return null;
+  return Math.round(x * 100) / 100;
+}
+
+function daysBetween(a, b) {
+  const ms = Math.abs(b.getTime() - a.getTime());
+  return ms / (1000 * 60 * 60 * 24);
+}
+
+function isMonthlyGap(d) {
+  return d >= 25 && d <= 35;
+}
+
+function isYearlyGap(d) {
+  return d >= 330 && d <= 400;
+}
+
+async function updateSubscriptionPatterns(token) {
+  // Step 5: stronger recurring/subscription detection using amount+interval patterns.
+  // Uses only anonymized fields (merchant_normalized, amount, booking_date_iso).
+  const r = await pool.query(
+    `SELECT id, merchant_normalized, booking_amount_value, booking_date_iso,
+            COALESCE(booking_category,'') AS booking_category,
+            COALESCE(is_subscription,false) AS is_subscription
+     FROM masked_transactions
+     WHERE token=$1
+       AND merchant_normalized IS NOT NULL AND merchant_normalized <> ''
+       AND booking_amount_value IS NOT NULL
+       AND booking_amount_value > 0
+       AND booking_date_iso IS NOT NULL
+       AND booking_date_iso >= (now() - interval '24 months')
+     ORDER BY merchant_normalized ASC, booking_amount_value ASC, booking_date_iso ASC`,
+    [token]
+  );
+
+  const groups = new Map();
+  for (const row of r.rows) {
+    const amt = round2(row.booking_amount_value);
+    if (amt == null) continue;
+    const merchant = String(row.merchant_normalized || '').trim();
+    if (!merchant) continue;
+    const key = `${merchant}|${amt.toFixed(2)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({
+      id: row.id,
+      date: new Date(row.booking_date_iso),
+      category: String(row.booking_category || ''),
+      alreadySub: Boolean(row.is_subscription)
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    for (const [key, items] of groups.entries()) {
+      if (items.length < 2) continue;
+      items.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+      const months = new Set(items.map(it => `${it.date.getUTCFullYear()}-${String(it.date.getUTCMonth()+1).padStart(2,'0')}`));
+      const deltas = [];
+      for (let i = 1; i < items.length; i++) {
+        deltas.push(daysBetween(items[i-1].date, items[i].date));
+      }
+      const monthlyGaps = deltas.filter(isMonthlyGap).length;
+      const yearlyGaps = deltas.filter(isYearlyGap).length;
+
+      let period = null;
+      let score = 0;
+      if (items.length >= 3 && monthlyGaps >= 2) {
+        period = 'monthly';
+        score = monthlyGaps / Math.max(1, deltas.length);
+      } else if (yearlyGaps >= 1) {
+        period = 'yearly';
+        score = yearlyGaps / Math.max(1, deltas.length);
+      }
+
+      const computedRecurring = (months.size >= 3 && items.length >= 3) || period !== null;
+      const categoryHintsSub = items.some(it => /abo|versicherung|miete|internet|telefon/i.test(it.category));
+      const computedSub = Boolean(period) || categoryHintsSub;
+      const keepExistingSub = items.some(it => it.alreadySub);
+
+      // Update rows in this group
+      const ids = items.map(it => it.id);
+      await client.query(
+        `UPDATE masked_transactions
+         SET subscription_key = $1,
+             recurrence_score = $2,
+             is_recurring = COALESCE(is_recurring,false) OR $3,
+             is_subscription = COALESCE(is_subscription,false) OR $4,
+             subscription_period = CASE
+               WHEN $5 IS NULL THEN subscription_period
+               WHEN subscription_period IS NULL OR subscription_period = '' OR subscription_period = 'unknown' THEN $5
+               ELSE subscription_period
+             END
+         WHERE token=$6 AND id = ANY($7::bigint[])`,
+        [key, score, computedRecurring, (keepExistingSub || computedSub), period, token, ids]
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export async function categorizeImport(importId, token) {
@@ -205,6 +316,12 @@ export async function categorizeImport(importId, token) {
       await client.query("COMMIT");
     }
     await updateRecurringFlags(token);
+    // Step 5: enrich recurring/subscription signals using amount+interval patterns.
+    try {
+      await updateSubscriptionPatterns(token);
+    } catch {
+      // Don't fail the job if this enrichment step hits an unexpected edge case.
+    }
   } catch (e) {
     try { await client.query("ROLLBACK"); } catch { /* ignore */ }
     throw e;

@@ -166,6 +166,8 @@ export async function savingsIdeasMonth(token, ym) {
   const summary = await spendingSummaryMonth(token, ym);
   const subs = await listSubscriptionsMonth(token, ym);
   const topMerchants = await topMerchantsMonth(token, ym, 10);
+  const dupSubs = await duplicateSubscriptionsMonth(token, ym);
+  const budgetStatus = await budgetStatusMonth(token, ym);
 
   // Simple heuristics for the MVP. The assistant will turn this into human text.
   return {
@@ -173,6 +175,8 @@ export async function savingsIdeasMonth(token, ym) {
     total: summary.total,
     top_categories: summary.by_category.slice(0, 6),
     top_merchants: topMerchants.slice(0, 8),
+    duplicate_subscription_groups: dupSubs,
+    budget_status: budgetStatus,
     subscription_candidates: subs
       .slice(0, 10)
       .map((t) => ({
@@ -184,6 +188,168 @@ export async function savingsIdeasMonth(token, ym) {
         recurring: t.is_recurring,
         period: t.subscription_period
       }))
+  };
+}
+
+export async function listBudgets(token) {
+  const r = await pool.query(
+    `SELECT category, monthly_limit
+     FROM budgets
+     WHERE token=$1
+     ORDER BY category ASC`,
+    [token]
+  );
+  return r.rows.map((x) => ({
+    category: x.category,
+    monthly_limit: Number(Number(x.monthly_limit).toFixed(2))
+  }));
+}
+
+export async function setBudget(token, category, monthlyLimit) {
+  const cat = String(category || '').trim();
+  const limit = Number(monthlyLimit);
+  if (!cat) throw new Error('budget_category_required');
+  if (!Number.isFinite(limit) || limit <= 0) throw new Error('budget_limit_invalid');
+
+  const r = await pool.query(
+    `INSERT INTO budgets(token, category, monthly_limit)
+     VALUES($1,$2,$3)
+     ON CONFLICT (token, category)
+     DO UPDATE SET monthly_limit=EXCLUDED.monthly_limit, updated_on=now()
+     RETURNING category, monthly_limit`,
+    [token, cat, limit]
+  );
+  return {
+    category: r.rows[0].category,
+    monthly_limit: Number(Number(r.rows[0].monthly_limit).toFixed(2))
+  };
+}
+
+export async function budgetStatusMonth(token, ym) {
+  const budgets = await listBudgets(token);
+  if (budgets.length === 0) return { month: ym, budgets: [] };
+
+  const { start, end } = monthRange(ym);
+  const r = await pool.query(
+    `SELECT COALESCE(booking_category,'Unkategorisiert') AS category,
+            COALESCE(SUM(booking_amount_value),0) AS total
+     FROM masked_transactions
+     WHERE token=$1 AND booking_date_iso >= $2 AND booking_date_iso < $3
+     GROUP BY COALESCE(booking_category,'Unkategorisiert')`,
+    [token, start.toISOString(), end.toISOString()]
+  );
+
+  const totals = new Map(r.rows.map((x) => [x.category, Number(x.total)]));
+  const out = budgets.map((b) => {
+    const spent = Number((totals.get(b.category) || 0).toFixed(2));
+    const remaining = Number((b.monthly_limit - spent).toFixed(2));
+    return {
+      category: b.category,
+      limit: b.monthly_limit,
+      spent,
+      remaining,
+      status: spent > b.monthly_limit ? 'over' : 'ok'
+    };
+  });
+  return { month: ym, budgets: out };
+}
+
+export async function duplicateSubscriptionsMonth(token, ym) {
+  const { start, end } = monthRange(ym);
+  const r = await pool.query(
+    `SELECT COALESCE(NULLIF(booking_category,''),'Unkategorisiert') AS category,
+            COALESCE(NULLIF(merchant_normalized,''), booking_text) AS merchant,
+            COALESCE(SUM(booking_amount_value),0) AS total
+     FROM masked_transactions
+     WHERE token=$1
+       AND booking_date_iso >= $2 AND booking_date_iso < $3
+       AND (
+         is_subscription = true
+         OR is_recurring = true
+         OR booking_category ILIKE '%abo%'
+       )
+     GROUP BY COALESCE(NULLIF(booking_category,''),'Unkategorisiert'),
+              COALESCE(NULLIF(merchant_normalized,''), booking_text)
+     ORDER BY category ASC, total DESC`,
+    [token, start.toISOString(), end.toISOString()]
+  );
+
+  const byCat = new Map();
+  for (const row of r.rows) {
+    const cat = row.category;
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push({
+      merchant: row.merchant,
+      total: Number(Number(row.total).toFixed(2))
+    });
+  }
+
+  // Duplicates = >=2 merchants in same category bucket.
+  const dup = [];
+  for (const [cat, rows] of byCat.entries()) {
+    const merchants = new Set(rows.map((x) => x.merchant));
+    if (merchants.size >= 2 && /abo|streaming|musik|gaming|versicherung/i.test(cat)) {
+      const sum = rows.reduce((s, x) => s + x.total, 0);
+      dup.push({
+        category: cat,
+        merchants: rows.slice(0, 8),
+        total: Number(sum.toFixed(2))
+      });
+    }
+  }
+  return dup;
+}
+
+export async function alertsMonth(token, ym) {
+  const budgetStatus = await budgetStatusMonth(token, ym);
+
+  // Anomaly alerts vs last 3 months average by category.
+  const { start, end } = monthRange(ym);
+  const prevStart = new Date(start);
+  prevStart.setUTCMonth(prevStart.getUTCMonth() - 3);
+
+  const hist = await pool.query(
+    `SELECT to_char(date_trunc('month', booking_date_iso), 'YYYY-MM') AS ym,
+            COALESCE(booking_category,'Unkategorisiert') AS category,
+            COALESCE(SUM(booking_amount_value),0) AS total
+     FROM masked_transactions
+     WHERE token=$1
+       AND booking_date_iso >= $2 AND booking_date_iso < $3
+     GROUP BY 1,2`,
+    [token, prevStart.toISOString(), end.toISOString()]
+  );
+
+  const byCat = new Map();
+  for (const row of hist.rows) {
+    const cat = row.category;
+    const month = row.ym;
+    const total = Number(row.total);
+    if (!byCat.has(cat)) byCat.set(cat, new Map());
+    byCat.get(cat).set(month, total);
+  }
+
+  const anomalies = [];
+  for (const [cat, monthMap] of byCat.entries()) {
+    const current = monthMap.get(ym) || 0;
+    // average of previous 3 months (excluding current)
+    const prevMonths = Array.from(monthMap.entries()).filter(([m]) => m !== ym).map(([,v]) => v);
+    if (prevMonths.length === 0) continue;
+    const avg = prevMonths.reduce((s,v)=>s+v,0) / prevMonths.length;
+    if (current >= 30 && avg > 0 && current > avg * 1.3) {
+      anomalies.push({
+        category: cat,
+        current: Number(current.toFixed(2)),
+        average_prev: Number(avg.toFixed(2)),
+        increase_pct: Number(((current/avg - 1) * 100).toFixed(0))
+      });
+    }
+  }
+
+  const overBudgets = budgetStatus.budgets.filter((b) => b.status === 'over');
+  return {
+    month: ym,
+    over_budgets: overBudgets,
+    anomalies: anomalies.sort((a,b) => (b.current - a.current)).slice(0, 12)
   };
 }
 
@@ -295,6 +461,31 @@ export const TOOL_SPEC = [
     args: { month: "YYYY-MM" }
   },
   {
+    name: "duplicateSubscriptionsMonth",
+    description: "Findet mögliche doppelte Abos (mehrere Merchants in ähnlichen Abo-Kategorien) in einem Monat.",
+    args: { month: "YYYY-MM" }
+  },
+  {
+    name: "listBudgets",
+    description: "Listet gesetzte Monats-Budgets pro Kategorie.",
+    args: {}
+  },
+  {
+    name: "setBudget",
+    description: "Setzt/aktualisiert ein Monats-Budget für eine Kategorie.",
+    args: { category: "A>B>C", monthly_limit: "number" }
+  },
+  {
+    name: "budgetStatusMonth",
+    description: "Zeigt für einen Monat, wie viel pro Budget-Kategorie ausgegeben wurde und ob das Budget überschritten ist.",
+    args: { month: "YYYY-MM" }
+  },
+  {
+    name: "alertsMonth",
+    description: "Erstellt Warnungen für einen Monat (Budget überschritten, ungewöhnliche Anstiege vs Durchschnitt).",
+    args: { month: "YYYY-MM" }
+  },
+  {
     name: "transactionById",
     description: "Gibt Details zu einer Transaktion anhand ihrer ID.",
     args: { id: "number" }
@@ -313,6 +504,11 @@ export async function runTool(token, tool) {
   if (name === "listSubscriptionsMonth") return await listSubscriptionsMonth(token, String(args.month));
   if (name === "fixedVsVariableMonth") return await fixedVsVariableMonth(token, String(args.month));
   if (name === "savingsIdeasMonth") return await savingsIdeasMonth(token, String(args.month));
+  if (name === "duplicateSubscriptionsMonth") return await duplicateSubscriptionsMonth(token, String(args.month));
+  if (name === "listBudgets") return await listBudgets(token);
+  if (name === "setBudget") return await setBudget(token, String(args.category), args.monthly_limit);
+  if (name === "budgetStatusMonth") return await budgetStatusMonth(token, String(args.month));
+  if (name === "alertsMonth") return await alertsMonth(token, String(args.month));
   if (name === "transactionById") return await transactionById(token, Number(args.id));
   throw new Error(`unknown_tool_${name}`);
 }
