@@ -179,8 +179,13 @@ async function runImport(accountAlias: string) {
     await runCategorization(imp.import_id);
 
     pushAssistant(
-      "Fertig! Du kannst jetzt Fragen stellen – z.B. „Welche Abos waren im September am teuersten?“",
-      []
+      "Fertig! Was möchtest du als nächstes tun?",
+      [
+        { type: "button", label: "Monatsübersicht", value: "intent:month_summary" },
+        { type: "button", label: "Budgets vorschlagen", value: "intent:budget_wizard" },
+        { type: "button", label: "Abos prüfen", value: "intent:subscriptions_overview" },
+        { type: "button", label: "Sparideen", value: "Wie kann ich diesen Monat sparen?" }
+      ]
     );
 
     pending.value = null;

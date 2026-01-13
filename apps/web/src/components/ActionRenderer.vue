@@ -39,7 +39,13 @@
           </thead>
           <tbody>
             <tr v-for="(r, ridx) in a.rows" :key="ridx">
-              <td v-for="k in Object.keys(a.rows[0])" :key="k">{{ r[k] }}</td>
+              <td
+                v-for="k in Object.keys(a.rows[0])"
+                :key="k"
+                :class="cellClass(k, r[k])"
+              >
+                {{ formatCell(k, r[k]) }}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -60,6 +66,30 @@ const emit = defineEmits<{
 }>();
 
 const textValue = ref("");
+
+function isNumber(v: any) {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+function formatCell(key: string, value: any) {
+  if (isNumber(value)) {
+    const k = String(key || "");
+    const n = Number(value);
+    const fixed = Math.abs(n) >= 100 ? n.toFixed(0) : n.toFixed(2);
+    // Add € only if the column implies currency.
+    if (k.includes("€") || /betrag|summe|limit|ausgegeben|übrig/i.test(k)) {
+      return `${fixed} €`;
+    }
+    return fixed;
+  }
+  return value;
+}
+
+function cellClass(key: string, value: any) {
+  const k = String(key || "");
+  if (isNumber(value) || k.includes("€") || /betrag|summe|limit|ausgegeben|übrig/i.test(k)) return "num";
+  return "";
+}
 
 function submitText(_a: Action) {
   const v = textValue.value.trim();
@@ -84,5 +114,6 @@ function onFile(e: Event) {
 .tableWrap { width:100%; overflow:auto; border:1px solid #eee; border-radius:12px; }
 .table { border-collapse:collapse; width:100%; min-width:520px; }
 .table th, .table td { padding:10px 12px; border-bottom:1px solid #eee; text-align:left; font-size:13px; }
+.table td.num, .table th.num { text-align:right; white-space:nowrap; }
 .muted { opacity:0.7; padding:10px 12px; }
 </style>

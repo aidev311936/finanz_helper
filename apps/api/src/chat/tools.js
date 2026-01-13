@@ -191,6 +191,118 @@ export async function savingsIdeasMonth(token, ym) {
   };
 }
 
+function bucketForSubscription(category, merchant) {
+  const c = String(category || "").toLowerCase();
+  const m = String(merchant || "").toLowerCase();
+  const x = `${c} ${m}`;
+
+  if (/stream|netflix|disney|prime|amazon\s*prime|wow|sky|rtl\+|joyn|dazn/.test(x)) return "Streaming";
+  if (/musik|spotify|apple\s*music|deezer|soundcloud/.test(x)) return "Musik";
+  if (/gaming|xbox|playstation|psn|steam|nintendo/.test(x)) return "Gaming";
+  if (/versicherung|haftpflicht|hausrat|kfz|kranken/.test(x)) return "Versicherung";
+  if (/telefon|internet|mobilfunk|vodafone|telekom|o2|1\&1/.test(x)) return "Internet/Telefon";
+  if (/miete|nebenkosten|strom|gas|wasser|heizung/.test(x)) return "Wohnen/Nebenkosten";
+  return "Sonstiges";
+}
+
+export async function subscriptionSummaryMonth(token, ym) {
+  const rows = await listSubscriptionsMonth(token, ym);
+  const items = rows.map((t) => {
+    const merchant = t.merchant_normalized || t.booking_text;
+    return {
+      id: t.id,
+      merchant,
+      bucket: bucketForSubscription(t.booking_category, merchant),
+      amount: Number(t.booking_amount_value || 0),
+      period: t.subscription_period || "unknown",
+      recurring: Boolean(t.is_recurring),
+      category: t.booking_category || ""
+    };
+  });
+
+  const byBucket = new Map();
+  for (const it of items) {
+    if (!byBucket.has(it.bucket)) byBucket.set(it.bucket, { bucket: it.bucket, total: 0, count: 0 });
+    const b = byBucket.get(it.bucket);
+    b.total += it.amount || 0;
+    b.count += 1;
+  }
+
+  const buckets = Array.from(byBucket.values())
+    .map((b) => ({ bucket: b.bucket, total: Number(b.total.toFixed(2)), count: b.count }))
+    .sort((a, b) => b.total - a.total);
+
+  // Convenience: estimated monthly total (yearly subs divided by 12)
+  const estimatedMonthly = items.reduce((sum, it) => {
+    const amt = it.amount || 0;
+    if (it.period === "yearly") return sum + amt / 12;
+    return sum + amt;
+  }, 0);
+
+  return {
+    month: ym,
+    estimated_monthly_total: Number(estimatedMonthly.toFixed(2)),
+    buckets,
+    items: items
+      .sort((a, b) => (b.amount || 0) - (a.amount || 0))
+      .slice(0, 60)
+  };
+}
+
+export async function cancellationCandidatesMonth(token, ym) {
+  const summary = await subscriptionSummaryMonth(token, ym);
+  const duplicates = await duplicateSubscriptionsMonth(token, ym);
+
+  const expensive = summary.items
+    .filter((it) => (it.period === "monthly" || it.period === "unknown") && it.amount >= 12)
+    .slice(0, 12);
+
+  // Pick duplicate buckets first
+  const dupHints = duplicates.map((d) => ({
+    category: d.category,
+    total: d.total,
+    merchants: d.merchants
+  }));
+
+  return {
+    month: ym,
+    duplicate_groups: dupHints,
+    expensive_candidates: expensive.map((e) => ({
+      id: e.id,
+      merchant: e.merchant,
+      amount: Number(e.amount.toFixed(2)),
+      bucket: e.bucket,
+      period: e.period,
+      category: e.category
+    }))
+  };
+}
+
+export async function budgetSuggestionsMonth(token, ym) {
+  const summary = await spendingSummaryMonth(token, ym);
+  const budgets = await listBudgets(token);
+  const budgetMap = new Map(budgets.map((b) => [b.category, b.monthly_limit]));
+
+  // Suggest budgets for the top categories with meaningful spend.
+  const suggestions = summary.by_category
+    .filter((c) => c.total >= 20)
+    .slice(0, 8)
+    .map((c) => {
+      const spent = Number(c.total);
+      const existing = budgetMap.get(c.category);
+      // suggested = 90% of last month's spend, rounded to nearest 10
+      const suggested = Math.max(10, Math.round((spent * 0.9) / 10) * 10);
+      return {
+        category: c.category,
+        spent: Number(spent.toFixed(2)),
+        existing_limit: existing != null ? Number(Number(existing).toFixed(2)) : null,
+        suggested_limit: Number(Number(suggested).toFixed(2))
+      };
+    });
+
+  return { month: ym, suggestions };
+}
+
 export async function listBudgets(token) {
   const r = await pool.query(
     `SELECT category, monthly_limit
@@ -461,6 +573,16 @@ export const TOOL_SPEC = [
     args: { month: "YYYY-MM" }
   },
   {
+    name: "subscriptionSummaryMonth",
+    description: "Fasst Abos/Recurring in einem Monat zusammen (Buckets wie Streaming/Musik/Versicherung) inkl. geschätzter Monats-Gesamtsumme.",
+    args: { month: "YYYY-MM" }
+  },
+  {
+    name: "cancellationCandidatesMonth",
+    description: "Gibt Kündigungs-/Prüf-Kandidaten für Abos in einem Monat zurück (Duplikate + teure Kandidaten).",
+    args: { month: "YYYY-MM" }
+  },
+  {
     name: "duplicateSubscriptionsMonth",
     description: "Findet mögliche doppelte Abos (mehrere Merchants in ähnlichen Abo-Kategorien) in einem Monat.",
     args: { month: "YYYY-MM" }
@@ -469,6 +591,11 @@ export const TOOL_SPEC = [
     name: "listBudgets",
     description: "Listet gesetzte Monats-Budgets pro Kategorie.",
     args: {}
+  },
+  {
+    name: "budgetSuggestionsMonth",
+    description: "Schlägt für einen Monat Budgets für Top-Kategorien vor (basierend auf Ausgaben und bestehenden Budgets).",
+    args: { month: "YYYY-MM" }
   },
   {
     name: "setBudget",
@@ -509,6 +636,9 @@ export async function runTool(token, tool) {
   if (name === "setBudget") return await setBudget(token, String(args.category), args.monthly_limit);
   if (name === "budgetStatusMonth") return await budgetStatusMonth(token, String(args.month));
   if (name === "alertsMonth") return await alertsMonth(token, String(args.month));
+  if (name === "budgetSuggestionsMonth") return await budgetSuggestionsMonth(token, String(args.month));
+  if (name === "subscriptionSummaryMonth") return await subscriptionSummaryMonth(token, String(args.month));
+  if (name === "cancellationCandidatesMonth") return await cancellationCandidatesMonth(token, String(args.month));
   if (name === "transactionById") return await transactionById(token, Number(args.id));
   throw new Error(`unknown_tool_${name}`);
 }

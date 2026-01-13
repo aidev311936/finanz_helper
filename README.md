@@ -1,4 +1,4 @@
-# Haushaltmanager (Phase 1 – Step 5: Budgets + Alerts + bessere Abo-Erkennung)
+# Haushaltmanager (Phase 1 – Step 6: Budget‑Wizard + Abo‑Zusammenfassung)
 
 Minimaler, lauffähiger Prototyp nach deinem Konzept:
 
@@ -9,6 +9,7 @@ Minimaler, lauffähiger Prototyp nach deinem Konzept:
 - Chat Q&A: KI nutzt **Tools (SQL)** auf anonymisierte Umsätze, stellt Rückfragen und liefert Buttons/Datepicker
 - Step 4: zusätzliche **Insights‑Tools** (Monatsübersicht, Top Händler, Fixkosten vs variabel, Sparpotenziale)
 - Step 5: **Budgets** (pro Kategorie), **Alerts** (Budget überschritten + ungewöhnliche Anstiege) und stärkere **Abo/Recurring-Erkennung** (Merchant + Betrag + Intervall)
+- Step 6: **Budget‑Wizard** (Top‑Kategorien als Buttons + Vorschlagswerte) und **Abo‑Zusammenfassung** (Buckets wie Streaming/Musik + Kündigungs‑Kandidaten)
 
 ## Voraussetzungen
 
@@ -79,3 +80,16 @@ Die wichtigsten ENV‑Variablen stehen in `docker-compose.yml` (bei `api` **und*
 - „Setze ein Budget für Lebensunterhalt>Einkauf>Supermarkt auf 250“
 - „Welche Warnungen gibt es für 2025-09?“
 - „Habe ich doppelte Abos im 2025-09?“
+
+**Step 6 (Wizards in der UI):**
+
+Nach dem Import siehst du Buttons:
+
+- „Monatsübersicht“ → Monat auswählen (Buttons) → Tabellen (Top‑Kategorien, Konten)
+- „Budgets vorschlagen“ → Monat auswählen → Vorschlagswerte + „Budget setzen …“ Buttons
+- „Abos prüfen“ → Monat auswählen → Abo‑Buckets + teure/duplizierte Kandidaten
+
+Optional auch per Chat:
+
+- `intent:budget_wizard`
+- `intent:subscriptions_overview`
