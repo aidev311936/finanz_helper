@@ -93,3 +93,39 @@ Optional auch per Chat:
 
 - `intent:budget_wizard`
 - `intent:subscriptions_overview`
+
+## Deploy auf Render.com
+
+Dieses Repo ist als Multi‑Service App gedacht. Render startet **kein** `docker-compose.yml` direkt – du legst stattdessen Services an:
+
+- **Postgres** (Render Managed DB)
+- **API** (Web Service, Docker)
+- **Worker** (Background Worker, Docker)
+- **Web** (Static Site, Vite Build)
+
+### Option 1: Blueprint (empfohlen)
+
+Im Repo‑Root liegt eine fertige `render.yaml`. Render Blueprints lesen diese Datei und provisionieren die Ressourcen automatisch.
+
+**Ablauf:**
+1. Repo nach GitHub pushen
+2. Render Dashboard → **Blueprints** → **New Blueprint Instance** → Repo auswählen
+3. Bei Secrets wirst du u.a. nach `OPENAI_API_KEY` / `GEMINI_API_KEY` gefragt (je nach Provider)
+4. Deploy starten
+
+**Wichtig (Frontend URL):** `VITE_API_BASE` wird von Vite **zur Build‑Zeit** eingebettet. Nur Variablen mit `VITE_` Prefix sind im Browser sichtbar.  
+Wenn du den API‑Service anders nennst oder eine Custom Domain nutzt, setze `VITE_API_BASE` entsprechend und triggere einen Rebuild des Static Sites.
+
+### Option 2: Manuell (ohne Blueprint)
+
+1. Render → New → **PostgreSQL** anlegen
+2. Render → New → **Web Service** (Docker) für `apps/api`
+   - Dockerfile: `apps/api/Dockerfile`
+   - Env: `DATABASE_URL` = Render DB connectionString, `OPENAI_API_KEY` etc.
+   - Health Check Path: `/health`
+3. Render → New → **Background Worker** (Docker) für `apps/worker`
+4. Render → New → **Static Site** für `apps/web`
+   - Build: `cd apps/web && npm ci && npm run build`
+   - Publish: `apps/web/dist`
+   - Env: `VITE_API_BASE=https://<dein-api>.onrender.com`
+
