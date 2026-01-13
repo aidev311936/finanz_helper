@@ -1,0 +1,11 @@
+{
+  "name": "@apps/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/index.js"
+  },
+  "dependencies": {
+    "pg": "^8.12.0"
+  }
+}
