@@ -60,9 +60,7 @@ CREATE TABLE IF NOT EXISTS masked_transactions (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_tx_account_hash
-  ON masked_transactions(account_id, booking_hash)
-  WHERE booking_hash IS NOT NULL AND booking_hash <> '';
-
+  ON masked_transactions(account_id, booking_hash);
 CREATE INDEX IF NOT EXISTS idx_tx_token_date ON masked_transactions(token, booking_date_iso DESC);
 CREATE INDEX IF NOT EXISTS idx_tx_token_category ON masked_transactions(token, booking_category);
 

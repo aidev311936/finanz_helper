@@ -191,7 +191,28 @@ async function runImport(accountAlias: string) {
     pending.value = null;
   } catch (e: any) {
     console.error(e);
-    pushAssistant(`⚠️ Import fehlgeschlagen: ${e?.message || e}`);
+        const msg = String(e?.message || e || "");
+    if (msg.includes("Failed to fetch")) {
+      pushAssistant(
+        "⚠️ Import fehlgeschlagen: Ich konnte den Backend-Server nicht erreichen. Bitte prüfe:
+" +
+          "1) Läuft der API-Container? (docker compose ps)
+" +
+          "2) Gibt es Fehler in den API-Logs? (docker compose logs -f api)
+" +
+          "3) Ist http://localhost:8080/health erreichbar?
+" +
+          "Wenn du magst, kopiere die letzten 30 Zeilen aus den API-Logs hier rein."
+      );
+    } else if (msg.startsWith("upload_failed_")) {
+      pushAssistant(
+        `⚠️ Import fehlgeschlagen: Backend hat mit ${msg.replace("upload_failed_", "")} geantwortet. ` +
+          "Bitte prüfe die API-Logs (docker compose logs -f api) und teile mir die Fehlermeldung."
+      );
+    } else {
+      pushAssistant(`⚠️ Import fehlgeschlagen: ${msg}`);
+    }
+
   } finally {
     busy.value = false;
   }

@@ -49,32 +49,6 @@ docker compose down -v
 docker compose up --build
 ```
 
-## Entwickeln ohne Node.js lokal (VS Code / Antigravity mit Devcontainer)
-
-Wenn du **Node.js nicht lokal installieren** möchtest, nutze den mitgelieferten Devcontainer (`.devcontainer/`).
-
-### VS Code
-1. Extension **Dev Containers** installieren (`ms-vscode-remote.remote-containers`).
-2. Repo öffnen → Command Palette → **Dev Containers: Reopen in Container**.
-3. Im Container-Terminal starten:
-   ```bash
-   docker compose up --build
-   ```
-
-### Antigravity
-Antigravity kann Devcontainer ebenfalls öffnen. Wähle das Repo aus und öffne es in der Container-Umgebung. Danach gilt das gleiche Startkommando:
-
-```bash
-docker compose up --build
-```
-
-**Reset** (DB löschen) im Devcontainer wie gewohnt:
-
-```bash
-docker compose down -v
-docker compose up --build
-```
-
 ## Konfiguration (LLM Provider)
 
 Die wichtigsten ENV‑Variablen stehen in `docker-compose.yml` (bei `api` **und** `worker`):

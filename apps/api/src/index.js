@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import crypto from "node:crypto";
 import { migrate } from "./migrate.js";
 import { ensureToken, newToken, touchToken } from "./session.js";
 import { pool } from "./db.js";
@@ -154,6 +155,20 @@ function toNumberOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function computeFallbackHash(t, amountValue) {
+  // Deterministic server-side fallback if client didn't send a hash.
+  const raw = [
+    t.bank_name ?? "",
+    t.booking_date_iso ?? "",
+    t.booking_date ?? "",
+    t.booking_text ?? "",
+    t.booking_type ?? "",
+    amountValue ?? "",
+    t.booking_amount ?? ""
+  ].join("|");
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
 // Transactions bulk insert
 app.post("/api/transactions/bulk", requireToken, async (req, res) => {
   const import_id = Number(req.body?.import_id);
@@ -170,7 +185,7 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
     await client.query("BEGIN");
 
     for (const t of txs) {
-      const booking_hash = String(t.booking_hash || "");
+      let booking_hash = String(t.booking_hash || "").trim();
       const booking_date_iso = t.booking_date_iso || null;
       const booking_date_raw = t.booking_date_raw ? String(t.booking_date_raw) : null;
       const booking_date = t.booking_date ? String(t.booking_date) : null;
@@ -179,7 +194,11 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
       const booking_amount = t.booking_amount ? String(t.booking_amount) : null;
       const amount_value = toNumberOrNull(t.booking_amount_value);
 
-      if (!booking_hash || !booking_text) {
+      if (!booking_hash) {
+        booking_hash = computeFallbackHash(t, amount_value);
+      }
+
+      if (!booking_text) {
         continue;
       }
 
@@ -220,7 +239,8 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK");
-    throw e;
+    console.error("[bulk] insert failed", e);
+    return res.status(500).json({ error: "bulk_insert_failed" });
   } finally {
     client.release();
   }

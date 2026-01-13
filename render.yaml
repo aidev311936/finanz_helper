@@ -11,7 +11,9 @@ services:
       - key: PORT
         value: 8080
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: haushalt-db
+          property: connectionString
       - key: COOKIE_SECRET
         generateValue: true
       - key: SUPPORT_TOKEN
@@ -42,7 +44,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: haushalt-db
+          property: connectionString
       - key: WORKER_ID
         value: worker-1
       - key: LLM_PROVIDER
@@ -72,3 +76,9 @@ services:
       # Nach dem ersten Deploy ggf. auf die tatsächliche API-URL anpassen.
       - key: VITE_API_BASE
         value: https://haushalt-api.onrender.com
+
+databases:
+  - name: haushalt-db
+    plan: starter
+    postgresMajorVersion: "16"
+    diskSizeGB: 5
