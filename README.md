@@ -1,79 +1,63 @@
-# Haushaltmanager (Phase 1 – Step 3: LLM-Kategorisierung + Chat Q&A)
+# Haushaltmanager (Phase 1 – Step 3: LLM‑Kategorisierung + Chat Q&A)
 
-Dieses Repo ist ein **minimaler, lauffähiger Prototyp** im Stil deines Konzepts:
-- UI = **Chat** (mobil-first, wenig UI-Elemente)
-- CSV-Import → **lokale Pseudonymisierung/Maskierung im Browser** (ohne KI)
-- Speicherung der **anonymisierten Umsätze** in Postgres
-- Kategorisierung wird **als Job** angestoßen (Worker) – per **austauschbarem LLM Provider**
-- Chat Q&A: KI nutzt **Tools (SQL)** auf anonymisierte Umsätze, stellt Rückfragen und gibt Buttons/Datepicker zurück
+Minimaler, lauffähiger Prototyp nach deinem Konzept:
 
-## Schnellstart
+- UI = **Chat** (mobil‑first, wenige UI‑Elemente)
+- CSV‑Import → **lokale Pseudonymisierung/Maskierung im Browser** (ohne KI)
+- Speicherung **anonymisierter Umsätze** in Postgres
+- Kategorisierung läuft als **Job** im Worker (ohne Redis) über **austauschbaren LLM‑Provider**
+- Chat Q&A: KI nutzt **Tools (SQL)** auf anonymisierte Umsätze, stellt Rückfragen und liefert Buttons/Datepicker
 
-Voraussetzung: Docker + docker compose
+## Voraussetzungen
+
+- Docker + Docker Compose (v2)
+
+## Start
+
+Im Repo‑Root:
 
 ```bash
-cd haushaltmanager-chat
 docker compose up --build
 ```
 
 Dann öffnen:
-- Frontend: http://localhost:5173
-- Backend: http://localhost:8080
 
-## Testen ohne echte Bank
+- Web: http://localhost:5173
+- API: http://localhost:8080
 
-In der DB wird beim ersten Start ein Demo-Mapping `generic_4col` angelegt.
-Es erwartet eine CSV **ohne Header** mit 4 Spalten:
+> Postgres läuft als eigener Service im Compose und hat einen Healthcheck. API/Worker starten erst, wenn die DB „ready“ ist.
 
-1. Datum (dd.MM.yyyy)
-2. Text
-3. Art
-4. Betrag
-
-Beispieldatei liegt hier:
-`apps/web/public/sample-generic.csv`
-
-## Unbekannte Bank
-
-Wenn keine Bank erkannt wird, fragt die UI nach dem **Banknamen** und sendet eine Anfrage an:
-`POST /api/bank-format-requests`
-
-## Support: Mapping anlegen/updaten (ohne UI)
+## Stop
 
 ```bash
-curl -X POST http://localhost:8080/api/support/bank-mapping \
-  -H 'Content-Type: application/json' \
-  -H 'x-support-token: dev-support-token' \
-  -d '{
-    "bank_name":"mybank",
-    "booking_date":["$1"],
-    "booking_text":["$2"],
-    "booking_type":["$3"],
-    "booking_amount":["$4"],
-    "booking_date_parse_format":"dd.MM.yyyy",
-    "without_header":true,
-    "detection": {"without_header": {"column_count":4, "column_markers":["date","text","text","number"]}}
-  }'
+docker compose down
 ```
 
----
+## Reset (Datenbank komplett leeren)
 
-## LLM Provider umschalten (OpenAI / Gemini / Local)
+⚠️ Löscht das Postgres‑Volume (alle Daten):
 
-In `docker-compose.yml` steuerst du Provider und Modell per Env:
+```bash
+docker compose down -v
+docker compose up --build
+```
 
-| Variable | Beschreibung |
+## Konfiguration (LLM Provider)
+
+Die wichtigsten ENV‑Variablen stehen in `docker-compose.yml` (bei `api` **und** `worker`):
+
+| Variable | Bedeutung |
 |---|---|
-| `LLM_PROVIDER` | `openai` (Responses API) · `gemini` · `local` (OpenAI-kompatibel) |
+| `LLM_PROVIDER` | `openai` · `gemini` · `local` (OpenAI‑kompatibel) |
 | `LLM_MODEL` | Modellname (z.B. `gpt-4o-mini` oder `gemini-1.5-flash`) |
-| `OPENAI_API_KEY` | API-Key für OpenAI |
-| `GEMINI_API_KEY` | API-Key für Gemini |
-| `LOCAL_LLM_BASE_URL` | OpenAI-kompatible Base URL (z.B. `http://localhost:8000/v1`) |
+| `OPENAI_API_KEY` | API‑Key für OpenAI |
+| `GEMINI_API_KEY` | API‑Key für Gemini |
+| `LOCAL_LLM_BASE_URL` | OpenAI‑kompatible Base URL (z.B. `http://localhost:8000/v1`) |
 | `LOCAL_LLM_API_KEY` | optionaler Key |
 
 **Wichtig:** Für echten Betrieb Keys in eine `.env` auslagern (nicht einchecken).
 
-## Beispiel-Fragen
+## Beispiel‑Fragen
 
 - „Welche Abos waren im September 2025 am teuersten?“
 - „Zeig mir alle Ausgaben am 2025-09-17“
