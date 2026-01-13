@@ -19,7 +19,6 @@ services:
       DATABASE_URL: postgres://haushalt:haushalt@postgres:5432/haushalt
       COOKIE_SECRET: dev-secret-change
       SUPPORT_TOKEN: dev-support-token
-      # Provider switch später:
       LLM_PROVIDER: openai
       OPENAI_API_KEY: ""
       GEMINI_API_KEY: ""

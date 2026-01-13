@@ -11,7 +11,7 @@ async function ensureMigrationsTable() {
   `);
 }
 
-async function applied(id) {
+async function isApplied(id) {
   const r = await pool.query(`SELECT 1 FROM _migrations WHERE id=$1`, [id]);
   return r.rowCount > 0;
 }
@@ -24,13 +24,13 @@ export async function migrate() {
   await ensureMigrationsTable();
 
   const dir = path.resolve("migrations");
-  const files = fs.readdirSync(dir)
-    .filter(f => f.endsWith(".sql"))
+  const files = fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
     .sort();
 
   for (const f of files) {
-    if (await applied(f)) continue;
-
+    if (await isApplied(f)) continue;
     const sql = fs.readFileSync(path.join(dir, f), "utf8");
     await pool.query(sql);
     await markApplied(f);

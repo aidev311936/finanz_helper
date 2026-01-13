@@ -1,105 +1,217 @@
 <template>
-  <div class="app">
-    <header class="topbar">
-      <div class="title">Haushaltmanager</div>
-      <div class="subtitle">Ausgaben verstehen. Ausgaben senken.</div>
+  <main class="shell">
+    <header class="top">
+      <div class="brand">Haushaltmanager</div>
+      <div class="sub">Minimiere Ausgaben – ohne Tabellen-Chaos.</div>
     </header>
 
-    <main class="chat">
-      <div class="messages">
-        <div
-          v-for="(m, idx) in messages"
-          :key="idx"
-          class="msg"
-          :class="m.role"
-        >
-          <div class="bubble">
-            <div class="text">{{ m.text }}</div>
-            <div v-if="m.actions?.length" class="actions">
-              <ActionRenderer
-                :actions="m.actions"
-                @action="handleAction"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <form class="composer" @submit.prevent="onSend">
-        <input
-          v-model="draft"
-          class="input"
-          placeholder="Schreib mir eine Frage…"
-          autocomplete="off"
+    <section class="chat">
+      <div v-for="(m, idx) in messages" :key="idx" class="bubble" :class="m.role">
+        <div class="text">{{ m.text }}</div>
+        <ActionRenderer
+          v-if="m.actions && m.actions.length"
+          :actions="m.actions"
+          @action="onAction"
+          @file="onFile"
         />
-        <button class="send" :disabled="busy || !draft.trim()">
-          Senden
-        </button>
-      </form>
-    </main>
-  </div>
+      </div>
+    </section>
+
+    <footer class="composer">
+      <input
+        class="input"
+        v-model="composer"
+        :disabled="busy"
+        placeholder="Schreib mir z.B. 'Zeig mir alle Abos'..."
+        @keydown.enter.prevent="sendChat"
+      />
+      <button class="send" :disabled="busy || !composer.trim()" @click="sendChat">Senden</button>
+    </footer>
+  </main>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
-import { ensureSession, sendChat } from "./api";
-import type { ChatMessage } from "./types";
+import type { Action, ChatMessage } from "./types";
+import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, runCategorization } from "./api";
+import type { BankMapping } from "./lib/types";
+import { buildMaskedTransactions, detectBankAndPrepare } from "./lib/importPipeline";
 
-const messages = ref<ChatMessage[]>([
-  { role: "assistant", text: "Hi! Lade zuerst deinen Kontoauszug hoch. (Upload-Flow kommt als nächstes)" }
-]);
-
-const draft = ref("");
+const messages = ref<ChatMessage[]>([]);
+const composer = ref("");
 const busy = ref(false);
 
+const mappings = ref<BankMapping[]>([]);
+const pending = ref<null | {
+  mapping: BankMapping;
+  header: string[];
+  dataRows: string[][];
+}>(null);
+
+function pushAssistant(text: string, actions: Action[] = []) {
+  messages.value.push({ role: "assistant", text, actions });
+}
+function pushUser(text: string) {
+  messages.value.push({ role: "user", text });
+}
+
+function startFlow() {
+  pushAssistant(
+    "Hi! Ich bin dein KI‑Haushaltmanager. Lade zuerst einen Kontoauszug als CSV hoch. Ich anonymisiere lokal im Browser und speichere nur die maskierten Umsätze.",
+    [{ type: "file", label: "CSV auswählen", accept: ".csv,text/csv" }]
+  );
+}
+
 onMounted(async () => {
-  await ensureSession();
+  busy.value = true;
+  try {
+    await ensureSession();
+    mappings.value = (await fetchBankMappings()) as BankMapping[];
+  } catch (e: any) {
+    pushAssistant("⚠️ Konnte Session oder Bank-Mappings nicht laden. Ist das Backend gestartet?");
+  } finally {
+    busy.value = false;
+  }
+  startFlow();
 });
 
-async function onSend() {
-  const text = draft.value.trim();
-  if (!text) return;
+async function onFile(file: File) {
+  if (!mappings.value.length) {
+    pushAssistant("⚠️ Keine Bank-Mappings verfügbar. Backend prüfen.");
+    return;
+  }
 
-  messages.value.push({ role: "user", text });
-  draft.value = "";
   busy.value = true;
+  pushUser(`Datei gewählt: ${file.name}`);
 
   try {
-    const res = await sendChat(text);
-    messages.value.push({
-      role: "assistant",
-      text: res.message,
-      actions: res.actions
-    });
+    const detection = await detectBankAndPrepare(file, mappings.value);
+    if (detection.kind === "unknown") {
+      pending.value = null;
+      pushAssistant(
+        "Ich konnte deine Bank noch nicht erkennen. Bitte gib den *Banknamen* ein (genau so wie er heißt). Dann kann Support ein Mapping erstellen.",
+        [{ type: "text", label: "Bankname", placeholder: "z.B. comdirect" }]
+      );
+      return;
+    }
+
+    pending.value = {
+      mapping: detection.mapping,
+      header: detection.header,
+      dataRows: detection.dataRows,
+    };
+
+    pushAssistant(
+      `Ich erkenne das Format wahrscheinlich als **${detection.mapping.bank_name}**. Wie soll ich dieses Konto nennen? (z.B. Hauptkonto)`,
+      [
+        { type: "button", label: "Hauptkonto", value: "Hauptkonto" },
+        { type: "button", label: "Kreditkarte", value: "Kreditkarte" },
+        { type: "button", label: "Sparkonto", value: "Sparkonto" },
+        { type: "text", label: "Konto-Name", placeholder: "z.B. Meine Visa" },
+      ]
+    );
+  } catch (e: any) {
+    console.error(e);
+    pushAssistant("⚠️ CSV konnte nicht verarbeitet werden. Ist es wirklich eine CSV-Datei?");
   } finally {
     busy.value = false;
   }
 }
 
-function handleAction(value: string) {
-  // Actions werden wie eine User Message behandelt
-  draft.value = value;
-  onSend();
+async function onAction(value: string) {
+  // If we are waiting for bank name (unknown bank)
+  if (!pending.value) {
+    const bankName = value.trim();
+    if (!bankName) return;
+    busy.value = true;
+    pushUser(bankName);
+    try {
+      await requestBankSupport(bankName);
+      pushAssistant(
+        `Danke! Ich habe „${bankName}“ an Support gemeldet. Sobald ein Mapping existiert, kannst du die CSV erneut hochladen.`,
+        [{ type: "file", label: "CSV erneut auswählen", accept: ".csv,text/csv" }]
+      );
+    } catch (e) {
+      pushAssistant("⚠️ Anfrage konnte nicht gesendet werden. Backend prüfen.");
+    } finally {
+      busy.value = false;
+    }
+    return;
+  }
+
+  // Otherwise this is the account alias
+  const alias = value.trim();
+  if (!alias) return;
+  pushUser(alias);
+  await runImport(alias);
+}
+
+async function runImport(accountAlias: string) {
+  if (!pending.value) return;
+
+  busy.value = true;
+  try {
+    pushAssistant("Alles klar. Ich bereite die Umsätze lokal auf …");
+
+    const { upload, warnings } = await buildMaskedTransactions({
+      mapping: pending.value.mapping,
+      header: pending.value.header,
+      dataRows: pending.value.dataRows,
+      accountAlias,
+    });
+
+    if (warnings.length) {
+      pushAssistant(`Hinweis zur Anonymisierung: ${warnings.join(" | ")}`);
+    }
+
+    pushAssistant(`Gefunden: ${upload.length} Buchungen. Ich speichere die anonymisierten Umsätze …`);
+
+    const acc = await createAccount(pending.value.mapping.bank_name, accountAlias);
+    const imp = await createImport(acc.id);
+    const up = await uploadMaskedTransactions({
+      import_id: imp.import_id,
+      account_id: acc.id,
+      transactions: upload,
+    });
+
+    pushAssistant(`✅ Import fertig: ${up.inserted} neu, ${up.skipped_duplicates} Duplikate. Ich starte die Kategorisierung …`);
+    await runCategorization(imp.import_id);
+
+    pushAssistant(
+      "Fertig! Du kannst jetzt Fragen stellen – z.B. „Welche Abos waren im September am teuersten?“",
+      []
+    );
+
+    pending.value = null;
+  } catch (e: any) {
+    console.error(e);
+    pushAssistant(`⚠️ Import fehlgeschlagen: ${e?.message || e}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function sendChat() {
+  // Chat endpoint exists but is not the core of step 2; keep simple.
+  const text = composer.value.trim();
+  if (!text) return;
+  pushUser(text);
+  composer.value = "";
+  pushAssistant("(Chat kommt in Schritt 3/4 voll. Für jetzt: CSV importieren und Kategorisierung laufen lassen.)");
 }
 </script>
 
 <style scoped>
-.app { height: 100vh; display: flex; flex-direction: column; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-.topbar { padding: 14px 14px 10px; border-bottom: 1px solid #eee; }
-.title { font-weight: 700; font-size: 18px; }
-.subtitle { font-size: 12px; opacity: 0.7; margin-top: 4px; }
-.chat { flex: 1; display: flex; flex-direction: column; }
-.messages { flex: 1; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-.msg { display: flex; }
-.msg.user { justify-content: flex-end; }
-.msg.assistant { justify-content: flex-start; }
-.bubble { max-width: 82%; border: 1px solid #eee; border-radius: 14px; padding: 10px 12px; }
-.msg.user .bubble { border-color: #ddd; }
+.shell { max-width: 720px; margin: 0 auto; padding: 14px; display:flex; flex-direction:column; gap:12px; min-height: 100vh; }
+.top { padding: 6px 2px; }
+.brand { font-weight: 700; font-size: 20px; }
+.sub { color:#666; font-size: 14px; margin-top: 4px; }
+.chat { flex: 1; display:flex; flex-direction:column; gap: 12px; padding: 8px 0; }
+.bubble { max-width: 92%; padding: 12px 12px; border-radius: 16px; border: 1px solid #eee; background:#fff; }
+.bubble.user { margin-left: auto; background:#fafafa; }
 .text { white-space: pre-wrap; line-height: 1.35; }
-.actions { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
-.composer { padding: 12px; border-top: 1px solid #eee; display: flex; gap: 10px; }
-.input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 12px; font-size: 14px; }
-.send { padding: 12px 14px; border-radius: 12px; border: 1px solid #ddd; background: #fff; }
-.send:disabled { opacity: 0.5; }
+.composer { display:flex; gap: 10px; padding: 10px 0 4px; }
+.input { flex: 1; border: 1px solid #ddd; border-radius: 14px; padding: 12px; font-size: 15px; }
+.send { border:1px solid #ddd; border-radius: 14px; padding: 12px 14px; background: #fff; }
 </style>

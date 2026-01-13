@@ -1,8 +1,7 @@
 FROM node:20-alpine
 WORKDIR /app
 COPY package.json ./
-RUN corepack enable && corepack prepare pnpm@9.12.2 --activate
-RUN pnpm install
+RUN npm i --omit=dev
 COPY . .
 EXPOSE 8080
-CMD ["pnpm","dev"]
+CMD ["npm","run","dev"]

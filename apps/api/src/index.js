@@ -2,63 +2,121 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { migrate } from "./migrate.js";
-import { ensureToken, newToken } from "./session.js";
+import { ensureToken, newToken, touchToken } from "./session.js";
 import { pool } from "./db.js";
 
 const app = express();
 
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser(process.env.COOKIE_SECRET || "dev"));
 
 function requireToken(req, res, next) {
   const token = req.cookies?.token || req.headers["x-token"];
   if (!token) return res.status(401).json({ error: "missing_token" });
-  req.token = token;
+  req.token = String(token);
+  touchToken(req.token).catch(() => {});
   next();
 }
 
-app.post("/api/session", async (req, res) => {
+function requireSupport(req, res, next) {
+  const expected = process.env.SUPPORT_TOKEN || "";
+  const got = String(req.headers["x-support-token"] || "");
+  if (!expected || got !== expected) return res.status(403).json({ error: "forbidden" });
+  next();
+}
+
+// Session
+app.post("/api/session", async (_req, res) => {
   const token = newToken();
   await ensureToken(token);
   res.cookie("token", token, { httpOnly: true, sameSite: "lax" });
   res.json({ token });
 });
 
-/** READ bank mappings (frontend uses for bank detection, no UI mapping) */
-app.get("/api/bank-mappings", requireToken, async (req, res) => {
-  const r = await pool.query(`SELECT bank_name, detection_hints, without_header, booking_date_parse_format
-                              FROM bank_mapping ORDER BY bank_name ASC`);
-  res.json({ data: r.rows });
+// Bank mappings (frontend needs full mapping; no UI edit)
+app.get("/api/bank-mapping", requireToken, async (_req, res) => {
+  const r = await pool.query(
+    `SELECT
+        bank_name,
+        booking_date,
+        booking_text,
+        booking_type,
+        amount,
+        booking_date_parse_format,
+        without_header,
+        detection_hints
+     FROM bank_mapping
+     ORDER BY bank_name ASC`
+  );
+
+  const mappings = r.rows.map((row) => ({
+    bank_name: row.bank_name,
+    booking_date: row.booking_date || [],
+    booking_text: row.booking_text || [],
+    booking_type: row.booking_type || [],
+    booking_amount: row.amount || [],
+    booking_date_parse_format: row.booking_date_parse_format || "",
+    without_header: !!row.without_header,
+    detection: row.detection_hints && Object.keys(row.detection_hints).length ? row.detection_hints : null,
+  }));
+
+  res.json({ mappings });
 });
 
-/** Bank unknown -> user provides bank_name -> support ticket */
+// Support can insert/update mappings (no user UI)
+app.post("/api/support/bank-mapping", requireSupport, async (req, res) => {
+  const m = req.body || {};
+  const bank_name = String(m.bank_name || "").trim();
+  if (!bank_name) return res.status(400).json({ error: "bank_name_required" });
+
+  const booking_date = Array.isArray(m.booking_date) ? m.booking_date.map(String) : [];
+  const booking_text = Array.isArray(m.booking_text) ? m.booking_text.map(String) : [];
+  const booking_type = Array.isArray(m.booking_type) ? m.booking_type.map(String) : [];
+  const amount = Array.isArray(m.booking_amount) ? m.booking_amount.map(String) : [];
+  const booking_date_parse_format = String(m.booking_date_parse_format || "");
+  const without_header = !!m.without_header;
+  const detection_hints = (typeof m.detection === "object" && m.detection && !Array.isArray(m.detection)) ? m.detection : {};
+
+  await pool.query(
+    `INSERT INTO bank_mapping(
+      bank_name, booking_date, booking_text, booking_type, amount,
+      booking_date_parse_format, without_header, detection_hints
+     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (bank_name) DO UPDATE SET
+       booking_date=EXCLUDED.booking_date,
+       booking_text=EXCLUDED.booking_text,
+       booking_type=EXCLUDED.booking_type,
+       amount=EXCLUDED.amount,
+       booking_date_parse_format=EXCLUDED.booking_date_parse_format,
+       without_header=EXCLUDED.without_header,
+       detection_hints=EXCLUDED.detection_hints`,
+    [bank_name, booking_date, booking_text, booking_type, amount, booking_date_parse_format, without_header, detection_hints]
+  );
+  res.json({ ok: true });
+});
+
+// Unknown bank request
 app.post("/api/bank-format-requests", requireToken, async (req, res) => {
   const bank_name = String(req.body?.bank_name || "").trim();
   if (!bank_name) return res.status(400).json({ error: "bank_name_required" });
-
   await pool.query(`INSERT INTO bank_format_requests(token, bank_name) VALUES ($1,$2)`, [req.token, bank_name]);
   res.json({ ok: true });
 });
 
-/** Accounts */
+// Accounts
+async function nextAccountHandle(token) {
+  const r = await pool.query(`SELECT COUNT(*)::int AS c FROM accounts WHERE token=$1`, [token]);
+  return `acc_${r.rows[0].c + 1}`;
+}
+
 app.get("/api/accounts", requireToken, async (req, res) => {
   const bank_name = req.query.bank_name ? String(req.query.bank_name) : null;
   const r = bank_name
     ? await pool.query(`SELECT id, bank_name, alias, handle FROM accounts WHERE token=$1 AND bank_name=$2 ORDER BY id ASC`, [req.token, bank_name])
     : await pool.query(`SELECT id, bank_name, alias, handle FROM accounts WHERE token=$1 ORDER BY id ASC`, [req.token]);
-
   res.json({ data: r.rows });
 });
-
-async function nextAccountHandle(token) {
-  const r = await pool.query(`SELECT COUNT(*)::int AS c FROM accounts WHERE token=$1`, [token]);
-  const n = r.rows[0].c + 1;
-  return `acc_${n}`;
-}
 
 app.post("/api/accounts", requireToken, async (req, res) => {
   const bank_name = String(req.body?.bank_name || "").trim();
@@ -73,24 +131,27 @@ app.post("/api/accounts", requireToken, async (req, res) => {
      RETURNING id, bank_name, alias, handle`,
     [req.token, bank_name, alias, handle]
   );
-
   res.json({ data: r.rows[0] });
 });
 
-/** Imports */
+// Imports
 app.post("/api/imports", requireToken, async (req, res) => {
   const account_id = Number(req.body?.account_id);
   if (!account_id) return res.status(400).json({ error: "account_id_required" });
-
   const r = await pool.query(
     `INSERT INTO imports(token, account_id) VALUES($1,$2) RETURNING id`,
     [req.token, account_id]
   );
-
   res.json({ data: { import_id: r.rows[0].id } });
 });
 
-/** Transactions bulk insert (masked only) */
+function toNumberOrNull(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Transactions bulk insert
 app.post("/api/transactions/bulk", requireToken, async (req, res) => {
   const import_id = Number(req.body?.import_id);
   const account_id = Number(req.body?.account_id);
@@ -104,24 +165,45 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
     for (const t of txs) {
-      // Minimal required fields (extend as needed)
       const booking_hash = String(t.booking_hash || "");
       const booking_date_iso = t.booking_date_iso || null;
+      const booking_date_raw = t.booking_date_raw ? String(t.booking_date_raw) : null;
+      const booking_date = t.booking_date ? String(t.booking_date) : null;
       const booking_text = String(t.booking_text || "");
-      const booking_type = t.booking_type ? String(t.booking_type) : null;
-      const amount_value = t.booking_amount_value != null ? Number(t.booking_amount_value) : null;
+      const booking_type = t.booking_type ? String(t.booking_type) : "";
+      const booking_amount = t.booking_amount ? String(t.booking_amount) : null;
+      const amount_value = toNumberOrNull(t.booking_amount_value);
+
+      if (!booking_hash || !booking_text) {
+        continue;
+      }
 
       const r = await client.query(
         `INSERT INTO masked_transactions(
-            token, account_id, import_id,
-            bank_name, booking_date_iso, booking_text, booking_type,
-            booking_amount_value, booking_hash
-         )
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         ON CONFLICT (account_id, booking_hash) DO NOTHING
-         RETURNING id`,
-        [req.token, account_id, import_id, t.bank_name || null, booking_date_iso, booking_text, booking_type, amount_value, booking_hash]
+          token, account_id, import_id,
+          bank_name, booking_date, booking_date_raw, booking_date_iso,
+          booking_text, booking_type,
+          booking_amount, booking_amount_value,
+          booking_hash
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT (account_id, booking_hash) DO NOTHING
+        RETURNING id`,
+        [
+          req.token,
+          account_id,
+          import_id,
+          t.bank_name || null,
+          booking_date,
+          booking_date_raw,
+          booking_date_iso,
+          booking_text,
+          booking_type,
+          booking_amount,
+          amount_value,
+          booking_hash,
+        ]
       );
       if (r.rowCount === 1) inserted++;
       else skipped_duplicates++;
@@ -131,6 +213,7 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
       `UPDATE imports SET tx_count = tx_count + $1 WHERE id=$2 AND token=$3`,
       [inserted, import_id, req.token]
     );
+
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK");
@@ -142,7 +225,7 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
   res.json({ data: { inserted, skipped_duplicates } });
 });
 
-/** Enqueue categorization job */
+// Enqueue categorization job
 app.post("/api/categorization/run", requireToken, async (req, res) => {
   const import_id = Number(req.body?.import_id);
   if (!import_id) return res.status(400).json({ error: "import_id_required" });
@@ -157,28 +240,22 @@ app.post("/api/categorization/run", requireToken, async (req, res) => {
   res.json({ data: { job_id: r.rows[0].id } });
 });
 
-/** Chat (very minimal skeleton) */
+// Minimal chat (we'll enhance later)
 app.post("/api/chat", requireToken, async (req, res) => {
   const content = String(req.body?.content || "").trim();
   if (!content) return res.status(400).json({ error: "content_required" });
 
   await pool.query(`INSERT INTO chat_messages(token, role, content) VALUES($1,'user',$2)`, [req.token, content]);
 
-  // Phase1 skeleton: simple canned response + next action
   const answer = {
-    message: "Alles klar. Welche Auswertung möchtest du sehen?",
-    actions: [
-      { type: "button", label: "Teuerstes Abo (Monat wählen)", value: "intent:most_expensive_subscription" },
-      { type: "button", label: "Ausgaben an einem Tag", value: "intent:spend_by_day" }
-    ]
+    message: "Ich kann dir helfen, Ausgaben zu verstehen. Lade zuerst eine CSV hoch (oben).",
+    actions: []
   };
 
   await pool.query(`INSERT INTO chat_messages(token, role, content) VALUES($1,'assistant',$2)`, [req.token, JSON.stringify(answer)]);
-
   res.json(answer);
 });
 
 const port = Number(process.env.PORT || 8080);
-
 await migrate();
 app.listen(port, () => console.log(`[api] listening on :${port}`));

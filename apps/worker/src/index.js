@@ -4,7 +4,7 @@ import { categorizeImport } from "./categorize.js";
 const workerId = process.env.WORKER_ID || "worker-1";
 
 function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 console.log(`[worker] started as ${workerId}`);

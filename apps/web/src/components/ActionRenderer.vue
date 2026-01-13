@@ -1,40 +1,68 @@
 <template>
-  <template v-for="(a, idx) in actions" :key="idx">
-    <button
-      v-if="a.type === 'button'"
-      class="action"
-      type="button"
-      @click="$emit('action', a.value)"
-    >
-      {{ a.label }}
-    </button>
+  <div class="actions" v-if="actions && actions.length">
+    <template v-for="(a, idx) in actions" :key="idx">
+      <button
+        v-if="a.type==='button'"
+        class="chip"
+        @click="$emit('action', a.value)"
+      >
+        {{ a.label }}
+      </button>
 
-    <label v-else-if="a.type === 'date'" class="field">
-      <span class="label">{{ a.label }}</span>
-      <input class="control" type="date" @change="$emit('action', ($event.target as HTMLInputElement).value)" />
-    </label>
+      <form v-else-if="a.type==='text'" class="inline" @submit.prevent="submitText(a)">
+        <input
+          class="text"
+          :placeholder="a.placeholder || a.label"
+          v-model="textValue"
+        />
+        <button class="chip" type="submit">{{ a.submitLabel || 'OK' }}</button>
+      </form>
 
-    <label v-else-if="a.type === 'text'" class="field">
-      <span class="label">{{ a.label }}</span>
-      <input class="control" type="text" :placeholder="a.placeholder" @keydown.enter.prevent="$emit('action', ($event.target as HTMLInputElement).value)" />
-    </label>
+      <form v-else-if="a.type==='date'" class="inline" @submit.prevent="submitText(a)">
+        <input class="text" type="date" v-model="textValue" />
+        <button class="chip" type="submit">OK</button>
+      </form>
 
-    <label v-else-if="a.type === 'file'" class="field">
-      <span class="label">{{ a.label }}</span>
-      <input class="control" type="file" :accept="a.accept" />
-    </label>
-  </template>
+      <div v-else-if="a.type==='file'" class="inline">
+        <label class="chip file">
+          {{ a.label }}
+          <input type="file" :accept="a.accept" @change="onFile" />
+        </label>
+      </div>
+    </template>
+  </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import type { Action } from "../types";
+
 defineProps<{ actions: Action[] }>();
-defineEmits<{ (e: "action", value: string): void }>();
+const emit = defineEmits<{
+  (e: "action", value: string): void;
+  (e: "file", file: File): void;
+}>();
+
+const textValue = ref("");
+
+function submitText(_a: Action) {
+  const v = textValue.value.trim();
+  if (!v) return;
+  emit("action", v);
+  textValue.value = "";
+}
+
+function onFile(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0];
+  if (f) emit("file", f);
+  (e.target as HTMLInputElement).value = "";
+}
 </script>
 
 <style scoped>
-.action { padding: 10px 12px; border-radius: 12px; border: 1px solid #ddd; background: #fff; font-size: 13px; }
-.field { display: grid; gap: 6px; min-width: 200px; }
-.label { font-size: 12px; opacity: 0.7; }
-.control { padding: 10px 12px; border-radius: 12px; border: 1px solid #ddd; }
+.actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+.chip { border:1px solid #ddd; background:#fff; border-radius:999px; padding:10px 12px; font-size:14px; }
+.inline { display:flex; gap:10px; align-items:center; }
+.text { border:1px solid #ddd; border-radius:12px; padding:10px 12px; font-size:14px; min-width:220px; }
+.file input { display:none; }
 </style>
