@@ -28,6 +28,20 @@ const TAXONOMY = [
   "Sonstiges"
 ];
 
+function normalizeMerchantFallback(text) {
+  // Deterministic fallback if the model doesn't return a merchant.
+  // booking_text is already anonymized; we still keep this conservative.
+  const t = String(text || "");
+  const cleaned = t
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "UNBEKANNT";
+  // Prefer the first 1-3 tokens as a short merchant label.
+  return cleaned.split(" ").slice(0, 3).join(" ").slice(0, 32);
+}
+
 function toCategoryString(path) {
   if (Array.isArray(path)) return path.filter(Boolean).join(">");
   return String(path || "");
@@ -86,8 +100,17 @@ Taxonomie (bevorzugt):\n- ${TAXONOMY.join("\n- ")}
 
 Regeln:
 - Antworte als JSON Array mit gleicher Reihenfolge und Länge wie input.
-- Jedes Element: {"key":"...","category":"A>B>C","confidence":0..1}
+- Jedes Element: {
+    "key":"...",
+    "merchant":"KURZER MERCHANT NAME",
+    "category":"A>B>C",
+    "confidence":0..1,
+    "is_subscription": true|false,
+    "subscription_period": "monthly"|"yearly"|"unknown"
+  }
 - category muss ein Pfad mit '>' sein. Wenn unsicher: 'Sonstiges'.
+- merchant soll kurz, stabil und in GROSSBUCHSTABEN sein (z.B. "NETFLIX", "LIDL", "AMAZON").
+- subscription_period nur setzen, wenn is_subscription=true.
 - Kein Markdown, keine Erklärung.
 `;
 
@@ -113,11 +136,37 @@ Regeln:
     const key = String(row?.key || "");
     if (!key) continue;
     map.set(key, {
+      merchant: String(row?.merchant || "").trim(),
       category: toCategoryString(row?.category),
-      confidence: clamp01(row?.confidence)
+      confidence: clamp01(row?.confidence),
+      is_subscription: Boolean(row?.is_subscription),
+      subscription_period: String(row?.subscription_period || "").trim() || null
     });
   }
   return map;
+}
+
+async function updateRecurringFlags(token) {
+  // Heuristic: merchant appears in >=3 distinct months (last 18 months) => recurring.
+  // This is intentionally conservative and can be refined later.
+  await pool.query(
+    `WITH m AS (
+       SELECT merchant_normalized
+       FROM masked_transactions
+       WHERE token=$1
+         AND merchant_normalized IS NOT NULL AND merchant_normalized <> ''
+         AND booking_date_iso IS NOT NULL
+         AND booking_date_iso >= (now() - interval '18 months')
+       GROUP BY merchant_normalized
+       HAVING COUNT(*) >= 3
+          AND COUNT(DISTINCT to_char(date_trunc('month', booking_date_iso), 'YYYY-MM')) >= 3
+     )
+     UPDATE masked_transactions t
+     SET is_recurring = true
+     WHERE t.token=$1
+       AND t.merchant_normalized IN (SELECT merchant_normalized FROM m)`,
+    [token]
+  );
 }
 
 export async function categorizeImport(importId, token) {
@@ -137,18 +186,25 @@ export async function categorizeImport(importId, token) {
         const r = resultMap.get(g.key);
         const category = r?.category || "Sonstiges";
         const confidence = r?.confidence ?? 0;
+        const merchant = (r?.merchant || "").trim() || normalizeMerchantFallback(g.sample_text);
+        const isSubscription = r?.is_subscription ?? false;
+        const period = isSubscription ? (r?.subscription_period || "unknown") : null;
 
         await client.query(
           `UPDATE masked_transactions
            SET booking_category=$1,
                category_confidence=$2,
-               category_source=$3
-           WHERE id = ANY($4::bigint[])`,
-          [category, confidence, "llm", g.ids]
+               category_source=$3,
+               merchant_normalized=$4,
+               is_subscription=$5,
+               subscription_period=$6
+           WHERE id = ANY($7::bigint[])`,
+          [category, confidence, "llm", merchant, isSubscription, period, g.ids]
         );
       }
       await client.query("COMMIT");
     }
+    await updateRecurringFlags(token);
   } catch (e) {
     try { await client.query("ROLLBACK"); } catch { /* ignore */ }
     throw e;

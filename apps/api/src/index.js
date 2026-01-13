@@ -12,6 +12,8 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser(process.env.COOKIE_SECRET || "dev"));
 
+app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
+
 function requireToken(req, res, next) {
   const token = req.cookies?.token || req.headers["x-token"];
   if (!token) return res.status(401).json({ error: "missing_token" });

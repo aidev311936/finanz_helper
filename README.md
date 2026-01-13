@@ -1,4 +1,4 @@
-# Haushaltmanager (Phase 1 – Step 3: LLM‑Kategorisierung + Chat Q&A)
+# Haushaltmanager (Phase 1 – Step 4: Insights + bessere Abo/Recurring‑Erkennung)
 
 Minimaler, lauffähiger Prototyp nach deinem Konzept:
 
@@ -7,6 +7,7 @@ Minimaler, lauffähiger Prototyp nach deinem Konzept:
 - Speicherung **anonymisierter Umsätze** in Postgres
 - Kategorisierung läuft als **Job** im Worker (ohne Redis) über **austauschbaren LLM‑Provider**
 - Chat Q&A: KI nutzt **Tools (SQL)** auf anonymisierte Umsätze, stellt Rückfragen und liefert Buttons/Datepicker
+- Step 4: zusätzliche **Insights‑Tools** (Monatsübersicht, Top Händler, Fixkosten vs variabel, Sparpotenziale)
 
 ## Voraussetzungen
 
@@ -62,3 +63,11 @@ Die wichtigsten ENV‑Variablen stehen in `docker-compose.yml` (bei `api` **und*
 - „Welche Abos waren im September 2025 am teuersten?“
 - „Zeig mir alle Ausgaben am 2025-09-17“
 - „Welche Monate habe ich überhaupt hochgeladen?“
+
+**Step 4 (Insights):**
+
+- „Gib mir eine Monatsübersicht für 2025-09“
+- „Top Händler im 2025-09“
+- „Wie hoch waren meine Fixkosten vs variablen Kosten im 2025-09?“
+- „Wo kann ich im 2025-09 sparen?“
+- „Zeig mir alle Abos im 2025-09“
