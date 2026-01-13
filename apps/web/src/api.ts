@@ -78,3 +78,14 @@ export async function runCategorization(import_id: number): Promise<{ job_id: nu
   const json = await r.json();
   return json.data;
 }
+
+export async function sendChat(content: string): Promise<{ message: string; actions?: any[] }> {
+  const r = await fetch(`${API_BASE}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ content }),
+  });
+  if (!r.ok) throw new Error(`chat_failed_${r.status}`);
+  return await r.json();
+}

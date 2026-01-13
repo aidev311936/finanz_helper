@@ -34,7 +34,7 @@
 import { onMounted, ref } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
 import type { Action, ChatMessage } from "./types";
-import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, runCategorization } from "./api";
+import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, runCategorization, sendChat as apiSendChat } from "./api";
 import type { BankMapping } from "./lib/types";
 import { buildMaskedTransactions, detectBankAndPrepare } from "./lib/importPipeline";
 
@@ -193,12 +193,20 @@ async function runImport(accountAlias: string) {
 }
 
 async function sendChat() {
-  // Chat endpoint exists but is not the core of step 2; keep simple.
   const text = composer.value.trim();
   if (!text) return;
   pushUser(text);
   composer.value = "";
-  pushAssistant("(Chat kommt in Schritt 3/4 voll. Für jetzt: CSV importieren und Kategorisierung laufen lassen.)");
+  busy.value = true;
+  try {
+    const out = await apiSendChat(text);
+    pushAssistant(out.message || "", Array.isArray(out.actions) ? (out.actions as Action[]) : []);
+  } catch (e: any) {
+    console.error(e);
+    pushAssistant("⚠️ Chat fehlgeschlagen. Prüfe LLM_PROVIDER/Keys oder Backend-Logs.");
+  } finally {
+    busy.value = false;
+  }
 }
 </script>
 

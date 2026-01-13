@@ -29,6 +29,22 @@
           <input type="file" :accept="a.accept" @change="onFile" />
         </label>
       </div>
+
+      <div v-else-if="a.type==='table'" class="tableWrap">
+        <table class="table" v-if="a.rows && a.rows.length">
+          <thead>
+            <tr>
+              <th v-for="k in Object.keys(a.rows[0])" :key="k">{{ k }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(r, ridx) in a.rows" :key="ridx">
+              <td v-for="k in Object.keys(a.rows[0])" :key="k">{{ r[k] }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="muted">(keine Daten)</div>
+      </div>
     </template>
   </div>
 </template>
@@ -65,4 +81,8 @@ function onFile(e: Event) {
 .inline { display:flex; gap:10px; align-items:center; }
 .text { border:1px solid #ddd; border-radius:12px; padding:10px 12px; font-size:14px; min-width:220px; }
 .file input { display:none; }
+.tableWrap { width:100%; overflow:auto; border:1px solid #eee; border-radius:12px; }
+.table { border-collapse:collapse; width:100%; min-width:520px; }
+.table th, .table td { padding:10px 12px; border-bottom:1px solid #eee; text-align:left; font-size:13px; }
+.muted { opacity:0.7; padding:10px 12px; }
 </style>

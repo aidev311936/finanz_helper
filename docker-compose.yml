@@ -20,8 +20,13 @@ services:
       COOKIE_SECRET: dev-secret-change
       SUPPORT_TOKEN: dev-support-token
       LLM_PROVIDER: openai
+      LLM_MODEL: gpt-4o-mini
+      OPENAI_BASE_URL: https://api.openai.com/v1
       OPENAI_API_KEY: ""
       GEMINI_API_KEY: ""
+      GEMINI_BASE_URL: https://generativelanguage.googleapis.com/v1beta
+      LOCAL_LLM_BASE_URL: http://local-llm:8000/v1
+      LOCAL_LLM_API_KEY: ""
     ports:
       - "8080:8080"
     depends_on:
@@ -35,8 +40,13 @@ services:
       DATABASE_URL: postgres://haushalt:haushalt@postgres:5432/haushalt
       WORKER_ID: worker-1
       LLM_PROVIDER: openai
+      LLM_MODEL: gpt-4o-mini
+      OPENAI_BASE_URL: https://api.openai.com/v1
       OPENAI_API_KEY: ""
       GEMINI_API_KEY: ""
+      GEMINI_BASE_URL: https://generativelanguage.googleapis.com/v1beta
+      LOCAL_LLM_BASE_URL: http://local-llm:8000/v1
+      LOCAL_LLM_API_KEY: ""
     depends_on:
       - postgres
 
