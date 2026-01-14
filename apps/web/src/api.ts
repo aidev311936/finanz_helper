@@ -128,11 +128,26 @@ export async function sendChat(content: string): Promise<{ message: string; acti
   return await r.json();
 }
 
+// Transform API response to AnonRule format
+function transformRule(apiRule: any): any {
+  return {
+    id: apiRule.id,
+    name: apiRule.name,
+    type: apiRule.rule_type,  // rule_type -> type
+    fields: ['booking_text'],  // Default to booking_text
+    pattern: apiRule.pattern,
+    flags: apiRule.flags,
+    replacement: apiRule.replacement,
+    description: apiRule.description,
+    enabled: apiRule.enabled ?? true,
+  };
+}
+
 export async function fetchAnonRules(): Promise<any[]> {
   const r = await authFetch(`/api/anon-rules`);
   if (!r.ok) throw new Error(`fetch_rules_failed_${r.status}`);
   const json = await r.json();
-  return json.rules || [];
+  return (json.rules || []).map(transformRule);
 }
 
 export async function createAnonRule(rule: {
@@ -148,7 +163,7 @@ export async function createAnonRule(rule: {
   });
   if (!r.ok) throw new Error(`create_rule_failed_${r.status}`);
   const json = await r.json();
-  return json.rule;
+  return transformRule(json.rule);
 }
 
 export async function updateAnonRule(id: number, updates: {
@@ -165,7 +180,7 @@ export async function updateAnonRule(id: number, updates: {
   });
   if (!r.ok) throw new Error(`update_rule_failed_${r.status}`);
   const json = await r.json();
-  return json.rule;
+  return transformRule(json.rule);
 }
 
 export async function deleteAnonRule(id: number): Promise<void> {
