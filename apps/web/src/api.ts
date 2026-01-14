@@ -75,8 +75,7 @@ export async function requestBankSupport(bank_name: string): Promise<void> {
 export async function createAccount(
   bank_name: string,
   alias: string
-): Promise<{ id: number; bank_name: string; alias: string }>
-{
+): Promise<{ id: number; bank_name: string; alias: string }> {
   const r = await authFetch(`/api/accounts`, {
     method: "POST",
     body: JSON.stringify({ bank_name, alias }),
@@ -127,4 +126,51 @@ export async function sendChat(content: string): Promise<{ message: string; acti
   });
   if (!r.ok) throw new Error(`chat_failed_${r.status}`);
   return await r.json();
+}
+
+export async function fetchAnonRules(): Promise<any[]> {
+  const r = await authFetch(`/api/anon-rules`);
+  if (!r.ok) throw new Error(`fetch_rules_failed_${r.status}`);
+  const json = await r.json();
+  return json.rules || [];
+}
+
+export async function createAnonRule(rule: {
+  name: string;
+  pattern: string;
+  flags?: string;
+  replacement: string;
+  description?: string;
+}): Promise<any> {
+  const r = await authFetch(`/api/anon-rules`, {
+    method: "POST",
+    body: JSON.stringify(rule),
+  });
+  if (!r.ok) throw new Error(`create_rule_failed_${r.status}`);
+  const json = await r.json();
+  return json.rule;
+}
+
+export async function updateAnonRule(id: number, updates: {
+  name?: string;
+  pattern?: string;
+  flags?: string;
+  replacement?: string;
+  description?: string;
+  enabled?: boolean;
+}): Promise<any> {
+  const r = await authFetch(`/api/anon-rules/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+  if (!r.ok) throw new Error(`update_rule_failed_${r.status}`);
+  const json = await r.json();
+  return json.rule;
+}
+
+export async function deleteAnonRule(id: number): Promise<void> {
+  const r = await authFetch(`/api/anon-rules/${id}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`delete_rule_failed_${r.status}`);
 }

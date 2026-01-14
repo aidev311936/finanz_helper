@@ -263,6 +263,81 @@ app.post("/api/categorization/run", requireToken, async (req, res) => {
   res.json({ data: { job_id: r.rows[0].id } });
 });
 
+// Anonymization rules
+app.get("/api/anon-rules", requireToken, async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, name, rule_type, pattern, flags, replacement, description, enabled
+     FROM anon_rules
+     WHERE token=$1 AND enabled=true
+     ORDER BY created_on ASC`,
+    [req.token]
+  );
+  res.json({ rules: r.rows });
+});
+
+app.post("/api/anon-rules", requireToken, async (req, res) => {
+  const { name, pattern, flags, replacement, description } = req.body;
+
+  if (!name || !pattern || !replacement) {
+    return res.status(400).json({ error: "name_pattern_and_replacement_required" });
+  }
+
+  try {
+    const r = await pool.query(
+      `INSERT INTO anon_rules(token, name, rule_type, pattern, flags, replacement, description)
+       VALUES($1, $2, 'regex', $3, $4, $5, $6)
+       RETURNING id, name, rule_type, pattern, flags, replacement, description`,
+      [req.token, name.trim(), pattern, flags || 'gi', replacement, description || null]
+    );
+    res.json({ rule: r.rows[0] });
+  } catch (e) {
+    if (e.code === '23505') { // Unique violation
+      return res.status(409).json({ error: "rule_name_already_exists" });
+    }
+    throw e;
+  }
+});
+
+app.put("/api/anon-rules/:id", requireToken, async (req, res) => {
+  const id = Number(req.params.id);
+  const { name, pattern, flags, replacement, description, enabled } = req.body;
+
+  try {
+    const r = await pool.query(
+      `UPDATE anon_rules
+       SET name=COALESCE($1, name),
+           pattern=COALESCE($2, pattern),
+           flags=COALESCE($3, flags),
+           replacement=COALESCE($4, replacement),
+           description=COALESCE($5, description),
+           enabled=COALESCE($6, enabled)
+       WHERE id=$7 AND token=$8
+       RETURNING id, name, rule_type, pattern, flags, replacement, description, enabled`,
+      [name?.trim(), pattern, flags, replacement, description, enabled, id, req.token]
+    );
+
+    if (r.rowCount === 0) {
+      return res.status(404).json({ error: "rule_not_found" });
+    }
+
+    res.json({ rule: r.rows[0] });
+  } catch (e) {
+    if (e.code === '23505') {
+      return res.status(409).json({ error: "rule_name_already_exists" });
+    }
+    throw e;
+  }
+});
+
+app.delete("/api/anon-rules/:id", requireToken, async (req, res) => {
+  const id = Number(req.params.id);
+  await pool.query(
+    `DELETE FROM anon_rules WHERE id=$1 AND token=$2`,
+    [id, req.token]
+  );
+  res.json({ ok: true });
+});
+
 app.post("/api/chat", requireToken, async (req, res) => {
   const content = String(req.body?.content || "").trim();
   if (!content) return res.status(400).json({ error: "content_required" });
