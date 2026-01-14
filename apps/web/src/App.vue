@@ -65,6 +65,17 @@ function pushUser(text: string) {
   messages.value.push({ role: "user", text });
 }
 
+function generatePattern(example: string): string {
+  // Simple heuristics for common patterns
+  if (/^DE\d{20}$/.test(example)) return 'DE\\d{20}';
+  if (/^[A-Z]{2}\d{2}[\w\s]{1,30}$/.test(example)) return '[A-Z]{2}\\d{2}[\\w\\s]{1,30}'; // General IBAN
+  if (/^\w+@\w+\.\w+$/.test(example)) return '[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}';
+  if (/^\d+$/.test(example)) return '\\d{' + example.length + ',}';
+  
+  // Fallback: escape regex special chars
+  return example.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function startFlow() {
   pushAssistant(
     "Hi! Ich bin dein KI‑Haushaltmanager. Lade zuerst einen Kontoauszug als CSV hoch. Ich anonymisiere lokal im Browser und speichere nur die maskierten Umsätze.",
@@ -130,6 +141,127 @@ async function onFile(file: File) {
 }
 
 async function onAction(value: string) {
+  if (!value) return;
+
+  // Handle anonymization choice
+  if (value === 'anon:choose') {
+    pushUser('Ja, mit Regeln');
+    await showAnonymizationPreview();
+    return;
+  }
+
+  if (value === 'anon:skip') {
+    pushUser('Nein, Original speichern');
+    await uploadTransactions(false);
+    return;
+  }
+
+  // Handle rule toggle
+  if (value.startsWith('toggle:')) {
+    const ruleId = Number(value.replace('toggle:', ''));
+    if (ruleToggles.value.has(ruleId)) {
+      ruleToggles.value.delete(ruleId);
+    } else {
+      ruleToggles.value.add(ruleId);
+    }
+
+    // Re-apply anonymization with updated rules
+    if (pendingPreview.value) {
+      const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(r.id));
+      const { data: anonymized } = await applyAnonymization(
+        pendingPreview.value.original,
+        activeRules
+      );
+      pendingPreview.value.anonymized = anonymized;
+    }
+    return;
+  }
+
+  // Handle rule creation
+  if (value === 'rule:new') {
+    pushUser('+ Neue Regel erstellen');
+    pushAssistant(
+      "Was möchtest du ersetzen? (z.B. eine IBAN, Email-Adresse, ...)",
+      [{ type: 'text', label: 'Text zum Ersetzen', placeholder: 'z.B. DE12345...' }]
+    );
+    ruleCreationState.value = 'awaiting_example';
+    return;
+  }
+
+  if (ruleCreationState.value === 'awaiting_example') {
+    ruleCreationDraft.value.example = value;
+    pushUser(value);
+    pushAssistant(
+      "Ersetzen durch?",
+      [{ type: 'text', label: 'Ersatztext', placeholder: 'z.B. [IBAN]' }]
+    );
+    ruleCreationState.value = 'awaiting_replacement';
+    return;
+  }
+
+  if (ruleCreationState.value === 'awaiting_replacement') {
+    ruleCreationDraft.value.replacement = value;
+    pushUser(value);
+    
+    // Generate pattern
+    const generatedPattern = generatePattern(ruleCreationDraft.value.example);
+    ruleCreationDraft.value.pattern = generatedPattern;
+    
+    pushAssistant(
+      `Ich schlage vor: "${generatedPattern}" → "${value}"\n\nName für diese Regel?`,
+      [
+        { type: 'button', label: 'IBAN Maskierung', value: 'rulename:IBAN Maskierung' },
+        { type: 'button', label: 'Bankdaten', value: 'rulename:Bankdaten' },
+        { type: 'button', label: 'Kontonummer', value: 'rulename:Kontonummer' },
+        { type: 'text', label: 'Eigener Name', placeholder: 'z.B. Meine IBAN-Regel' },
+      ]
+    );
+    ruleCreationState.value = 'awaiting_name';
+    return;
+  }
+
+  if (ruleCreationState.value === 'awaiting_name') {
+    const ruleName = value.startsWith('rulename:') ? value.replace('rulename:', '') : value;
+    pushUser(ruleName);
+    
+    busy.value = true;
+    try {
+      const newRule = await createAnonRule({
+        name: ruleName,
+        pattern: ruleCreationDraft.value.pattern,
+        flags: 'gi',
+        replacement: ruleCreationDraft.value.replacement,
+      });
+      
+      userRules.value.push(newRule);
+      pushAssistant(`✓ Regel "${ruleName}" erstellt!`);
+      
+      // Reset and re-show preview
+      ruleCreationState.value = 'idle';
+      ruleCreationDraft.value = {};
+      await showAnonymizationPreview();
+    } catch (e: any) {
+      console.error("Rule creation error:", e);
+      if (e.message.includes('409')) {
+        pushAssistant('⚠️ Eine Regel mit diesem Namen existiert bereits. Bitte wähle einen anderen Namen.');
+        ruleCreationState.value = 'awaiting_name';
+      } else {
+        pushAssistant('⚠️ Fehler beim Erstellen der Regel.');
+      }
+    } finally {
+      busy.value = false;
+    }
+    return;
+  }
+
+  // Handle upload
+  if (value === 'upload:yes') {
+    pushUser('✓ So speichern');
+    await uploadTransactions(true);
+    return;
+  }
+
+  // Bank support request
   // If we are waiting for bank name (unknown bank)
   if (!pending.value) {
     const bankName = value.trim();
@@ -162,61 +294,123 @@ async function runImport(accountAlias: string) {
 
   busy.value = true;
   try {
-    pushAssistant("Alles klar. Ich bereite die Umsätze lokal auf …");
+    pushAssistant("Alles klar. Ich bereite die Umsätze vor...");
 
-    const { upload, warnings } = await buildMaskedTransactions({
+    // Parse original transactions
+    const original = buildOriginalTransactions({
       mapping: pending.value.mapping,
       header: pending.value.header,
       dataRows: pending.value.dataRows,
       accountAlias,
     });
 
-    if (warnings.length) {
-      pushAssistant(`Hinweis zur Anonymisierung: ${warnings.join(" | ")}`);
+    pendingAlias.value = accountAlias;
+    pendingPreview.value = { original, anonymized: original };
+
+    // Ask about anonymization
+    pushAssistant(
+      `${original.length} Transaktionen gefunden. Möchtest du sie anonymisieren?`,
+      [
+        { type: 'button', label: '✓ Ja, mit Regeln', value: 'anon:choose' },
+        { type: 'button', label: '✗ Nein, Original speichern', value: 'anon:skip' },
+      ]
+    );
+  } catch (e) {
+    console.error("Parse error:", e);
+    pushAssistant("⚠️ Fehler beim Parsen der Transaktionen.");
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function showAnonymizationPreview() {
+  if (!pendingPreview.value) return;
+
+  busy.value = true;
+  try {
+    // Initialize all rules as ACTIVE
+    ruleToggles.value = new Set(userRules.value.map((r: any) => r.id));
+
+    // Apply all active rules
+    const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(r.id));
+    const { data: anonymized } = await applyAnonymization(
+      pendingPreview.value.original,
+      activeRules
+    );
+
+    pendingPreview.value.anonymized = anonymized;
+
+    const actions: Action[] = [];
+
+    // Show rule toggles
+    if (userRules.value.length > 0) {
+      actions.push(...userRules.value.map((rule: any) => ({
+        type: 'toggle',
+        id: rule.id,
+        label: rule.name,
+        active: true,
+        value: `toggle:${rule.id}`,
+      })));
     }
 
-    pushAssistant(`Gefunden: ${upload.length} Buchungen. Ich speichere die anonymisierten Umsätze …`);
+    actions.push(
+      { type: 'button', label: '+ Neue Regel erstellen', value: 'rule:new' },
+      { type: 'button', label: '✓ So speichern', value: 'upload:yes' }
+    );
 
-    const acc = await createAccount(pending.value.mapping.bank_name, accountAlias);
+    pushAssistant(
+      userRules.value.length > 0
+        ? "Wähle welche Regeln angewendet werden sollen:"
+        : "Du hast noch keine Regeln. Erstelle eine oder speichere ohne Anonymisierung:",
+      actions
+    );
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function uploadTransactions(useAnon: boolean) {
+  if (!pendingPreview.value || !pending.value || !pendingAlias.value) return;
+
+  busy.value = true;
+  try {
+    const data = useAnon ? pendingPreview.value.anonymized : pendingPreview.value.original;
+
+    pushAssistant(`Speichere ${data.length} Transaktionen...`);
+
+    const acc = await createAccount(pending.value.mapping.bank_name, pendingAlias.value);
     const imp = await createImport(acc.id);
+
+    const upload = data.map((t: any) => ({
+      bank_name: t.bank_name,
+      booking_date: t.booking_date,
+      booking_date_raw: t.booking_date_raw,
+      booking_date_iso: t.booking_date_iso,
+      booking_text: t.booking_text,
+      booking_type: t.booking_type,
+      booking_amount: t.booking_amount,
+      booking_amount_value: parseFloat(t.booking_amount.replace(/[^\d,-]/g, '').replace(',', '.')),
+      booking_hash: t.booking_hash,
+    }));
+
     const up = await uploadMaskedTransactions({
       import_id: imp.import_id,
       account_id: acc.id,
       transactions: upload,
     });
 
-    pushAssistant(`✅ Import fertig: ${up.inserted} neu, ${up.skipped_duplicates} Duplikate. Ich starte die Kategorisierung …`);
-    await runCategorization(imp.import_id);
+    pushAssistant(`✅ ${up.inserted} Transaktionen gespeichert!`, [
+      { type: 'file', label: 'Weitere CSV importieren', accept: '.csv,text/csv' },
+    ]);
 
-    pushAssistant(
-      "Fertig! Was möchtest du als nächstes tun?",
-      [
-        { type: "button", label: "Monatsübersicht", value: "intent:month_summary" },
-        { type: "button", label: "Budgets vorschlagen", value: "intent:budget_wizard" },
-        { type: "button", label: "Abos prüfen", value: "intent:subscriptions_overview" },
-        { type: "button", label: "Sparideen", value: "Wie kann ich diesen Monat sparen?" }
-      ]
-    );
-
+    // Reset state
     pending.value = null;
+    pendingAlias.value = '';
+    pendingPreview.value = null;
+    ruleCreationState.value = 'idle';
   } catch (e: any) {
-    console.error(e);
-        const msg = String(e?.message || e || "");
-    if (msg.includes("Failed to fetch")) {
-      pushAssistant(`⚠️ Import fehlgeschlagen: Ich konnte den Backend-Server nicht erreichen. Bitte prüfe:
-    1) Läuft der API-Container? (docker compose ps)
-    2) Gibt es Fehler in den API-Logs? (docker compose logs -f api)
-    3) Ist http://localhost:8080/health erreichbar?
-    Wenn du magst, kopiere die letzten 30 Zeilen aus den API-Logs hier rein.`);
-    } else if (msg.startsWith("upload_failed_")) {
-      pushAssistant(
-        `⚠️ Import fehlgeschlagen: Backend hat mit ${msg.replace("upload_failed_", "")} geantwortet. ` +
-          "Bitte prüfe die API-Logs (docker compose logs -f api) und teile mir die Fehlermeldung."
-      );
-    } else {
-      pushAssistant(`⚠️ Import fehlgeschlagen: ${msg}`);
-    }
-
+    console.error("Upload error:", e);
+    pushAssistant("⚠️ Fehler beim Speichern der Transaktionen.");
   } finally {
     busy.value = false;
   }
