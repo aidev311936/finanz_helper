@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS masked_transactions (
 
 -- dedupe pro konto über hash (UNIQUE constraint für ON CONFLICT)
 ALTER TABLE masked_transactions
-  ADD CONSTRAINT IF NOT EXISTS ux_tx_account_hash_uc UNIQUE (account_id, booking_hash);
+  ADD CONSTRAINT ux_tx_account_hash_uc UNIQUE (account_id, booking_hash);
 
 CREATE TABLE IF NOT EXISTS bank_mapping (
   id BIGSERIAL PRIMARY KEY,
