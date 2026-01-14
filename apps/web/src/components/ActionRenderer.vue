@@ -30,6 +30,15 @@
         </label>
       </div>
 
+      <button
+        v-else-if="a.type==='toggle'"
+        class="chip toggle"
+        :class="{ active: a.active }"
+        @click="$emit('action', a.value)"
+      >
+        {{ a.active ? '✓' : '○' }} {{ a.label }}
+      </button>
+
       <div v-else-if="a.type==='table'" class="tableWrap">
         <table class="table" v-if="a.rows && a.rows.length">
           <thead>
@@ -116,4 +125,6 @@ function onFile(e: Event) {
 .table th, .table td { padding:10px 12px; border-bottom:1px solid #eee; text-align:left; font-size:13px; }
 .table td.num, .table th.num { text-align:right; white-space:nowrap; }
 .muted { opacity:0.7; padding:10px 12px; }
+.chip.toggle { transition: all 0.2s; cursor: pointer; }
+.chip.toggle.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
 </style>

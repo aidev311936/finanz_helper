@@ -34,9 +34,10 @@
 import { onMounted, ref } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
 import type { Action, ChatMessage } from "./types";
-import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, runCategorization, sendChat as apiSendChat } from "./api";
+import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, runCategorization, sendChat as apiSendChat, fetchAnonRules, createAnonRule } from "./api";
 import type { BankMapping } from "./lib/types";
-import { buildMaskedTransactions, detectBankAndPrepare } from "./lib/importPipeline";
+import { buildMaskedTransactions, detectBankAndPrepare, buildOriginalTransactions } from "./lib/importPipeline";
+import { applyAnonymization } from "./lib/anonymize";
 
 const messages = ref<ChatMessage[]>([]);
 const composer = ref("");
@@ -48,6 +49,14 @@ const pending = ref<null | {
   header: string[];
   dataRows: string[][];
 }>(null);
+
+// Anonymization rule state
+const userRules = ref<any[]>([]);
+const ruleToggles = ref<Set<number>>(new Set());
+const ruleCreationState = ref<'idle' | 'awaiting_example' | 'awaiting_replacement' | 'awaiting_name'>('idle');
+const ruleCreationDraft = ref<any>({});
+const pendingAlias = ref<string>('');
+const pendingPreview = ref<{ original: any[]; anonymized: any[] } | null>(null);
 
 function pushAssistant(text: string, actions: Action[] = []) {
   messages.value.push({ role: "assistant", text, actions });
@@ -68,6 +77,7 @@ onMounted(async () => {
   try {
     await ensureSession();
     mappings.value = (await fetchBankMappings()) as BankMapping[];
+    userRules.value = await fetchAnonRules();
   } catch (e: any) {
     pushAssistant("⚠️ Konnte Session oder Bank-Mappings nicht laden. Ist das Backend gestartet?");
   } finally {

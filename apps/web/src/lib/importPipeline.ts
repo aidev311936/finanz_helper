@@ -102,3 +102,27 @@ export async function buildMaskedTransactions(params: {
 
   return { masked: anonym.data, upload, warnings: anonym.warnings };
 }
+
+export function buildOriginalTransactions(params: {
+  mapping: BankMapping;
+  header: string[];
+  dataRows: string[][];
+  accountAlias: string;
+}): UnifiedTx[] {
+  const display = defaultDisplaySettings();
+  return applyMapping(
+    params.dataRows,
+    params.header,
+    {
+      booking_date: params.mapping.booking_date,
+      booking_text: params.mapping.booking_text,
+      booking_type: params.mapping.booking_type,
+      booking_amount: params.mapping.booking_amount,
+      booking_date_parse_format: params.mapping.booking_date_parse_format,
+      without_header: params.mapping.without_header,
+    },
+    params.mapping.bank_name,
+    params.accountAlias,
+    display
+  );
+}
