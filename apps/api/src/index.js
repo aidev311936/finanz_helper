@@ -210,7 +210,7 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
           booking_amount, booking_amount_value,
           booking_hash
         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        ON CONFLICT (account_id, booking_hash) DO NOTHING
+        ON CONFLICT ON CONSTRAINT ux_tx_account_hash_uc DO NOTHING
         RETURNING id`,
         [
           req.token,
@@ -255,7 +255,7 @@ app.post("/api/categorization/run", requireToken, async (req, res) => {
 
   const r = await pool.query(
     `INSERT INTO jobs(token, type, payload)
-     VALUES($1,'categorize_import', jsonb_build_object('import_id',$2))
+     VALUES($1,'categorize_import', jsonb_build_object('import_id',$2::bigint))
      RETURNING id`,
     [req.token, import_id]
   );

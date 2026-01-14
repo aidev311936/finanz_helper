@@ -59,10 +59,9 @@ CREATE TABLE IF NOT EXISTS masked_transactions (
   updated_on TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_tx_account_hash
-  ON masked_transactions(account_id, booking_hash);
-CREATE INDEX IF NOT EXISTS idx_tx_token_date ON masked_transactions(token, booking_date_iso DESC);
-CREATE INDEX IF NOT EXISTS idx_tx_token_category ON masked_transactions(token, booking_category);
+-- dedupe pro konto über hash (UNIQUE constraint für ON CONFLICT)
+ALTER TABLE masked_transactions
+  ADD CONSTRAINT IF NOT EXISTS ux_tx_account_hash_uc UNIQUE (account_id, booking_hash);
 
 CREATE TABLE IF NOT EXISTS bank_mapping (
   id BIGSERIAL PRIMARY KEY,
