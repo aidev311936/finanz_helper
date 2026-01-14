@@ -19,7 +19,7 @@ function requireToken(req, res, next) {
   const token = req.cookies?.token || req.headers["x-token"];
   if (!token) return res.status(401).json({ error: "missing_token" });
   req.token = String(token);
-  touchToken(req.token).catch(() => {});
+  ensureToken(req.token).catch(() => { });
   next();
 }
 
@@ -210,7 +210,7 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
           booking_amount, booking_amount_value,
           booking_hash
         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        ON CONFLICT ON CONSTRAINT ux_tx_account_hash_uc DO NOTHING
+        ON CONFLICT (account_id, booking_hash) DO NOTHING
         RETURNING id`,
         [
           req.token,
