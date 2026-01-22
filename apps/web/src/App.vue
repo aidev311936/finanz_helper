@@ -9,18 +9,19 @@
       <section ref="chatContainer" class="chat">
         <div v-for="(m, idx) in messages" :key="idx" class="bubble" :class="m.role">
           <div class="text">{{ m.text }}</div>
-          <ActionRenderer
-            v-if="m.actions && m.actions.length"
-            :actions="m.actions"
-            @action="onAction"
-            @file="onFile"
-          />
+          <ActionRenderer v-if="m.actions && m.actions.length" :key="actionRefreshKey" :actions="m.actions"
+            @action="onAction" @file="onFile" />
         </div>
       </section>
 
       <section class="preview">
         <div v-if="pendingPreview" class="preview-container">
-          <h3 class="preview-title">Transaktionen Vorschau ({{ pendingPreview.anonymized.length }})</h3>
+          <div class="preview-header">
+            <h3 class="preview-title">Transaktionen Vorschau ({{ displayedTransactions.length }})</h3>
+            <button class="view-toggle" @click="showOriginal = !showOriginal" :class="{ active: showOriginal }">
+              {{ showOriginal ? 'Original' : 'Anonymisiert' }}
+            </button>
+          </div>
           <div class="table-wrapper">
             <table class="tx-table">
               <thead>
@@ -32,7 +33,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(tx, idx) in pendingPreview.anonymized" :key="idx">
+                <tr v-for="(tx, idx) in displayedTransactions" :key="idx">
                   <td>{{ tx.booking_date || 'N/A' }}</td>
                   <td>{{ tx.booking_text }}</td>
                   <td>{{ tx.booking_type }}</td>
@@ -50,20 +51,15 @@
     </div>
 
     <footer class="composer">
-      <input
-        class="input"
-        v-model="composer"
-        :disabled="busy"
-        placeholder="Schreib mir z.B. 'Zeig mir alle Abos'..."
-        @keydown.enter.prevent="sendChat"
-      />
+      <input class="input" v-model="composer" :disabled="busy" placeholder="Schreib mir z.B. 'Zeig mir alle Abos'..."
+        @keydown.enter.prevent="sendChat" />
       <button class="send" :disabled="busy || !composer.trim()" @click="sendChat">Senden</button>
     </footer>
   </main>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, nextTick } from "vue";
+import { onMounted, ref, nextTick, computed } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
 import type { Action, ChatMessage } from "./types";
 import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, sendChat as apiSendChat, fetchAnonRules, createAnonRule } from "./api";
@@ -89,6 +85,14 @@ const ruleCreationState = ref<'idle' | 'awaiting_example' | 'awaiting_replacemen
 const ruleCreationDraft = ref<any>({});
 const pendingAlias = ref<string>('');
 const pendingPreview = ref<{ original: any[]; anonymized: any[] } | null>(null);
+const showOriginal = ref(false);
+const actionRefreshKey = ref(0);
+
+// Computed property for transactions to display in preview
+const displayedTransactions = computed(() => {
+  if (!pendingPreview.value) return [];
+  return showOriginal.value ? pendingPreview.value.original : pendingPreview.value.anonymized;
+});
 
 const chatContainer = ref<HTMLElement | null>(null);
 
@@ -115,7 +119,7 @@ function generatePattern(example: string): string {
   if (/^[A-Z]{2}\d{2}[\w\s]{1,30}$/.test(example)) return '[A-Z]{2}\\d{2}[\\w\\s]{1,30}'; // General IBAN
   if (/^\w+@\w+\.\w+$/.test(example)) return '[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}';
   if (/^\d+$/.test(example)) return '\\d{' + example.length + ',}';
-  
+
   // Fallback: escape regex special chars
   return example.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -206,20 +210,20 @@ async function onAction(value: string) {
     const ruleId = Number(value.replace('toggle:', ''));
     console.log('[Toggle] Rule ID:', ruleId);
     console.log('[Toggle] Before:', Array.from(ruleToggles.value));
-    
+
     if (ruleToggles.value.has(ruleId)) {
       ruleToggles.value.delete(ruleId);
     } else {
       ruleToggles.value.add(ruleId);
     }
-    
+
     console.log('[Toggle] After:', Array.from(ruleToggles.value));
 
     // Re-apply anonymization with updated rules
     if (pendingPreview.value) {
       const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(r.id));
       console.log('[Toggle] Active rules count:', activeRules.length);
-      
+
       const { data: anonymized } = await applyAnonymization(
         pendingPreview.value.original,
         activeRules
@@ -228,16 +232,18 @@ async function onAction(value: string) {
       console.log('[Toggle] Anonymized:', anonymized.length, 'transactions');
 
       // Update the last message's actions to reflect new toggle states
-      // Use splice to trigger Vue reactivity
       const lastIndex = messages.value.length - 1;
       const lastMsg = messages.value[lastIndex];
       if (lastMsg && lastMsg.role === 'assistant') {
         const newActions = buildAnonymizationActions();
         console.log('[Toggle] New actions:', newActions);
-        messages.value.splice(lastIndex, 1, {
+        messages.value[lastIndex] = {
           ...lastMsg,
           actions: newActions
-        });
+        };
+        // Force component re-render by updating key
+        actionRefreshKey.value++;
+        console.log('[Toggle] Refresh key:', actionRefreshKey.value);
       }
     }
     return;
@@ -268,11 +274,11 @@ async function onAction(value: string) {
   if (ruleCreationState.value === 'awaiting_replacement') {
     ruleCreationDraft.value.replacement = value;
     pushUser(value);
-    
+
     // Generate pattern
     const generatedPattern = generatePattern(ruleCreationDraft.value.example);
     ruleCreationDraft.value.pattern = generatedPattern;
-    
+
     pushAssistant(
       `Ich schlage vor: "${generatedPattern}" → "${value}"\n\nName für diese Regel?`,
       [
@@ -289,7 +295,7 @@ async function onAction(value: string) {
   if (ruleCreationState.value === 'awaiting_name') {
     const ruleName = value.startsWith('rulename:') ? value.replace('rulename:', '') : value;
     pushUser(ruleName);
-    
+
     busy.value = true;
     try {
       const newRule = await createAnonRule({
@@ -298,10 +304,10 @@ async function onAction(value: string) {
         flags: 'gi',
         replacement: ruleCreationDraft.value.replacement,
       });
-      
+
       userRules.value.push(newRule);
       pushAssistant(`✓ Regel "${ruleName}" erstellt!`);
-      
+
       // Reset and re-show preview
       ruleCreationState.value = 'idle';
       ruleCreationDraft.value = {};
@@ -416,8 +422,8 @@ async function showAnonymizationPreview() {
 
   busy.value = true;
   try {
-    // Initialize all rules as ACTIVE
-    ruleToggles.value = new Set(userRules.value.map((r: any) => r.id));
+    // Initialize all rules as ACTIVE (ensure IDs are Numbers!)
+    ruleToggles.value = new Set(userRules.value.map((r: any) => Number(r.id)));
 
     // Apply all active rules
     const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(r.id));
@@ -505,64 +511,198 @@ async function sendChat() {
 </script>
 
 <style scoped>
-.shell { 
-  max-width: 100%; 
+.shell {
+  max-width: 100%;
   height: 100vh;
-  margin: 0 auto; 
-  padding: 14px; 
-  display: flex; 
-  flex-direction: column; 
-  gap: 12px; 
+  margin: 0 auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   overflow: hidden;
 }
-.top { padding: 6px 2px; flex-shrink: 0; }
-.brand { font-weight: 700; font-size: 20px; }
-.sub { color:#666; font-size: 14px; margin-top: 4px; }
 
-.content-grid { 
-  display: grid; 
-  grid-template-columns: 1fr 1fr; 
-  gap: 20px; 
+.top {
+  padding: 6px 2px;
+  flex-shrink: 0;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.sub {
+  color: #666;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
-.chat { 
-  display: flex; 
-  flex-direction: column; 
-  gap: 12px; 
-  padding: 8px 0; 
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
   overflow-y: auto;
   height: 100%;
 }
-.bubble { max-width: 92%; padding: 12px 12px; border-radius: 16px; border: 1px solid #eee; background:#fff; }
-.bubble.user { margin-left: auto; background:#fafafa; }
-.text { white-space: pre-wrap; line-height: 1.35; }
 
-.preview { 
-  display: flex; 
-  flex-direction: column; 
-  overflow: hidden; 
-  border: 1px solid #eee; 
-  border-radius: 12px; 
+.bubble {
+  max-width: 92%;
+  padding: 12px 12px;
+  border-radius: 16px;
+  border: 1px solid #eee;
+  background: #fff;
+}
+
+.bubble.user {
+  margin-left: auto;
+  background: #fafafa;
+}
+
+.text {
+  white-space: pre-wrap;
+  line-height: 1.35;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #eee;
+  border-radius: 12px;
   background: #fff;
   height: 100%;
 }
-.preview-container { display: flex; flex-direction: column; height: 100%; }
-.preview-title { padding: 12px 16px; margin: 0; font-size: 16px; font-weight: 600; border-bottom: 1px solid #eee; flex-shrink: 0; }
-.table-wrapper { flex: 1; overflow-y: auto; }
-.tx-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.tx-table thead { position: sticky; top: 0; background: #f9f9f9; z-index: 1; }
-.tx-table th { text-align: left; padding: 10px 12px; font-weight: 600; border-bottom: 2px solid #ddd; }
-.tx-table td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
-.tx-table tr:hover { background: #fafafa; }
-.tx-table .amount { text-align: right; font-family: monospace; }
-.preview-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #999; padding: 40px; text-align: center; }
-.preview-empty p { margin: 0; }
-.preview-empty .hint { font-size: 13px; margin-top: 8px; }
 
-.composer { display: flex; gap: 10px; padding: 10px 0 4px; flex-shrink: 0; }
-.input { flex: 1; border: 1px solid #ddd; border-radius: 14px; padding: 12px; font-size: 15px; }
-.send { border:1px solid #ddd; border-radius: 14px; padding: 12px 14px; background: #fff; }
+.preview-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+  flex-shrink: 0;
+}
+
+.preview-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.view-toggle {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-toggle:hover {
+  background: #f5f5f5;
+}
+
+.view-toggle.active {
+  background: #1a73e8;
+  color: #fff;
+  border-color: #1a73e8;
+}
+
+.table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.tx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tx-table thead {
+  position: sticky;
+  top: 0;
+  background: #f9f9f9;
+  z-index: 1;
+}
+
+.tx-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 600;
+  border-bottom: 2px solid #ddd;
+}
+
+.tx-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.tx-table tr:hover {
+  background: #fafafa;
+}
+
+.tx-table .amount {
+  text-align: right;
+  font-family: monospace;
+}
+
+.preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  padding: 40px;
+  text-align: center;
+}
+
+.preview-empty p {
+  margin: 0;
+}
+
+.preview-empty .hint {
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.composer {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0 4px;
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  border: 1px solid #ddd;
+  border-radius: 14px;
+  padding: 12px;
+  font-size: 15px;
+}
+
+.send {
+  border: 1px solid #ddd;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #fff;
+}
 </style>
