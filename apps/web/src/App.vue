@@ -6,7 +6,7 @@
     </header>
 
     <div class="content-grid">
-      <section class="chat">
+      <section ref="chatContainer" class="chat">
         <div v-for="(m, idx) in messages" :key="idx" class="bubble" :class="m.role">
           <div class="text">{{ m.text }}</div>
           <ActionRenderer
@@ -63,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, ref, nextTick } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
 import type { Action, ChatMessage } from "./types";
 import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, sendChat as apiSendChat, fetchAnonRules, createAnonRule } from "./api";
@@ -90,11 +90,23 @@ const ruleCreationDraft = ref<any>({});
 const pendingAlias = ref<string>('');
 const pendingPreview = ref<{ original: any[]; anonymized: any[] } | null>(null);
 
+const chatContainer = ref<HTMLElement | null>(null);
+
+function scrollChatToBottom() {
+  nextTick(() => {
+    if (chatContainer.value) {
+      chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+    }
+  });
+}
+
 function pushAssistant(text: string, actions: Action[] = []) {
   messages.value.push({ role: "assistant", text, actions });
+  scrollChatToBottom();
 }
 function pushUser(text: string) {
   messages.value.push({ role: "user", text });
+  scrollChatToBottom();
 }
 
 function generatePattern(example: string): string {
@@ -190,21 +202,43 @@ async function onAction(value: string) {
 
   // Handle rule toggle
   if (value.startsWith('toggle:')) {
+    console.log('[Toggle] Clicked:', value);
     const ruleId = Number(value.replace('toggle:', ''));
+    console.log('[Toggle] Rule ID:', ruleId);
+    console.log('[Toggle] Before:', Array.from(ruleToggles.value));
+    
     if (ruleToggles.value.has(ruleId)) {
       ruleToggles.value.delete(ruleId);
     } else {
       ruleToggles.value.add(ruleId);
     }
+    
+    console.log('[Toggle] After:', Array.from(ruleToggles.value));
 
     // Re-apply anonymization with updated rules
     if (pendingPreview.value) {
       const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(r.id));
+      console.log('[Toggle] Active rules count:', activeRules.length);
+      
       const { data: anonymized } = await applyAnonymization(
         pendingPreview.value.original,
         activeRules
       );
       pendingPreview.value.anonymized = anonymized;
+      console.log('[Toggle] Anonymized:', anonymized.length, 'transactions');
+
+      // Update the last message's actions to reflect new toggle states
+      // Use splice to trigger Vue reactivity
+      const lastIndex = messages.value.length - 1;
+      const lastMsg = messages.value[lastIndex];
+      if (lastMsg && lastMsg.role === 'assistant') {
+        const newActions = buildAnonymizationActions();
+        console.log('[Toggle] New actions:', newActions);
+        messages.value.splice(lastIndex, 1, {
+          ...lastMsg,
+          actions: newActions
+        });
+      }
     }
     return;
   }
@@ -355,6 +389,28 @@ async function runImport(accountAlias: string) {
   }
 }
 
+function buildAnonymizationActions(): Action[] {
+  const actions: Action[] = [];
+
+  // Show rule toggles with current active states
+  if (userRules.value.length > 0) {
+    actions.push(...userRules.value.map((rule: any) => ({
+      type: 'toggle',
+      id: rule.id,
+      label: rule.name,
+      active: ruleToggles.value.has(rule.id),
+      value: `toggle:${rule.id}`,
+    })));
+  }
+
+  actions.push(
+    { type: 'button', label: '+ Neue Regel erstellen', value: 'rule:new' },
+    { type: 'button', label: '✓ So speichern', value: 'upload:yes' }
+  );
+
+  return actions;
+}
+
 async function showAnonymizationPreview() {
   if (!pendingPreview.value) return;
 
@@ -372,29 +428,11 @@ async function showAnonymizationPreview() {
 
     pendingPreview.value.anonymized = anonymized;
 
-    const actions: Action[] = [];
-
-    // Show rule toggles
-    if (userRules.value.length > 0) {
-      actions.push(...userRules.value.map((rule: any) => ({
-        type: 'toggle',
-        id: rule.id,
-        label: rule.name,
-        active: true,
-        value: `toggle:${rule.id}`,
-      })));
-    }
-
-    actions.push(
-      { type: 'button', label: '+ Neue Regel erstellen', value: 'rule:new' },
-      { type: 'button', label: '✓ So speichern', value: 'upload:yes' }
-    );
-
     pushAssistant(
       userRules.value.length > 0
         ? "Wähle welche Regeln angewendet werden sollen:"
         : "Du hast noch keine Regeln. Erstelle eine oder speichere ohne Anonymisierung:",
-      actions
+      buildAnonymizationActions()
     );
   } finally {
     busy.value = false;
@@ -467,21 +505,52 @@ async function sendChat() {
 </script>
 
 <style scoped>
-.shell { max-width: 100%; margin: 0 auto; padding: 14px; display:flex; flex-direction:column; gap:12px; min-height: 100vh; }
-.top { padding: 6px 2px; }
+.shell { 
+  max-width: 100%; 
+  height: 100vh;
+  margin: 0 auto; 
+  padding: 14px; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 12px; 
+  overflow: hidden;
+}
+.top { padding: 6px 2px; flex-shrink: 0; }
 .brand { font-weight: 700; font-size: 20px; }
 .sub { color:#666; font-size: 14px; margin-top: 4px; }
 
-.content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; }
+.content-grid { 
+  display: grid; 
+  grid-template-columns: 1fr 1fr; 
+  gap: 20px; 
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 
-.chat { display:flex; flex-direction:column; gap: 12px; padding: 8px 0; overflow-y: auto; }
+.chat { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 12px; 
+  padding: 8px 0; 
+  overflow-y: auto;
+  height: 100%;
+}
 .bubble { max-width: 92%; padding: 12px 12px; border-radius: 16px; border: 1px solid #eee; background:#fff; }
 .bubble.user { margin-left: auto; background:#fafafa; }
 .text { white-space: pre-wrap; line-height: 1.35; }
 
-.preview { display: flex; flex-direction: column; overflow: hidden; border: 1px solid #eee; border-radius: 12px; background: #fff; }
+.preview { 
+  display: flex; 
+  flex-direction: column; 
+  overflow: hidden; 
+  border: 1px solid #eee; 
+  border-radius: 12px; 
+  background: #fff;
+  height: 100%;
+}
 .preview-container { display: flex; flex-direction: column; height: 100%; }
-.preview-title { padding: 12px 16px; margin: 0; font-size: 16px; font-weight: 600; border-bottom: 1px solid #eee; }
+.preview-title { padding: 12px 16px; margin: 0; font-size: 16px; font-weight: 600; border-bottom: 1px solid #eee; flex-shrink: 0; }
 .table-wrapper { flex: 1; overflow-y: auto; }
 .tx-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .tx-table thead { position: sticky; top: 0; background: #f9f9f9; z-index: 1; }
@@ -493,7 +562,7 @@ async function sendChat() {
 .preview-empty p { margin: 0; }
 .preview-empty .hint { font-size: 13px; margin-top: 8px; }
 
-.composer { display:flex; gap: 10px; padding: 10px 0 4px; }
+.composer { display: flex; gap: 10px; padding: 10px 0 4px; flex-shrink: 0; }
 .input { flex: 1; border: 1px solid #ddd; border-radius: 14px; padding: 12px; font-size: 15px; }
 .send { border:1px solid #ddd; border-radius: 14px; padding: 12px 14px; background: #fff; }
 </style>
