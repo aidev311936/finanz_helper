@@ -1,0 +1,41 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Docker: Start Service",
+            "type": "shell",
+            "command": "systemctl start docker",
+            "problemMatcher": [],
+            "detail": "Starts the Docker daemon (requires sudo)"
+        },
+        {
+            "label": "Docker: Build",
+            "type": "shell",
+            "command": "docker-compose build",
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "Builds the project containers"
+        },
+        {
+            "label": "DB: Reset",
+            "type": "shell",
+            "command": "docker-compose down -v && docker-compose up -d postgres",
+            "problemMatcher": [],
+            "detail": "Stops containers, removes volumes (clears DB), and restarts Postgres"
+        },
+        {
+            "label": "DB: SQL Shell",
+            "type": "shell",
+            "command": "docker-compose exec postgres psql -U haushalt -d haushalt",
+            "problemMatcher": [],
+            "isBackground": false,
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            },
+            "detail": "Opens psql interactive shell in the postgres container"
+        }
+    ]
+}
