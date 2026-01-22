@@ -221,7 +221,7 @@ async function onAction(value: string) {
 
     // Re-apply anonymization with updated rules
     if (pendingPreview.value) {
-      const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(r.id));
+      const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(Number(r.id)));
       console.log('[Toggle] Active rules count:', activeRules.length);
 
       const { data: anonymized } = await applyAnonymization(
@@ -398,13 +398,13 @@ async function runImport(accountAlias: string) {
 function buildAnonymizationActions(): Action[] {
   const actions: Action[] = [];
 
-  // Show rule toggles with current active states
+  // Show rule toggles with current active states (ensure Number comparison!)
   if (userRules.value.length > 0) {
     actions.push(...userRules.value.map((rule: any) => ({
       type: 'toggle',
       id: rule.id,
       label: rule.name,
-      active: ruleToggles.value.has(rule.id),
+      active: ruleToggles.value.has(Number(rule.id)),
       value: `toggle:${rule.id}`,
     })));
   }
@@ -425,8 +425,8 @@ async function showAnonymizationPreview() {
     // Initialize all rules as ACTIVE (ensure IDs are Numbers!)
     ruleToggles.value = new Set(userRules.value.map((r: any) => Number(r.id)));
 
-    // Apply all active rules
-    const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(r.id));
+    // Apply all active rules (ensure Number comparison!)
+    const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(Number(r.id)));
     const { data: anonymized } = await applyAnonymization(
       pendingPreview.value.original,
       activeRules
