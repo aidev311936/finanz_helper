@@ -5,17 +5,49 @@
       <div class="sub">Minimiere Ausgaben – ohne Tabellen-Chaos.</div>
     </header>
 
-    <section class="chat">
-      <div v-for="(m, idx) in messages" :key="idx" class="bubble" :class="m.role">
-        <div class="text">{{ m.text }}</div>
-        <ActionRenderer
-          v-if="m.actions && m.actions.length"
-          :actions="m.actions"
-          @action="onAction"
-          @file="onFile"
-        />
-      </div>
-    </section>
+    <div class="content-grid">
+      <section class="chat">
+        <div v-for="(m, idx) in messages" :key="idx" class="bubble" :class="m.role">
+          <div class="text">{{ m.text }}</div>
+          <ActionRenderer
+            v-if="m.actions && m.actions.length"
+            :actions="m.actions"
+            @action="onAction"
+            @file="onFile"
+          />
+        </div>
+      </section>
+
+      <section class="preview">
+        <div v-if="pendingPreview" class="preview-container">
+          <h3 class="preview-title">Transaktionen Vorschau ({{ pendingPreview.anonymized.length }})</h3>
+          <div class="table-wrapper">
+            <table class="tx-table">
+              <thead>
+                <tr>
+                  <th>Datum</th>
+                  <th>Buchungstext</th>
+                  <th>Typ</th>
+                  <th>Betrag</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(tx, idx) in pendingPreview.anonymized" :key="idx">
+                  <td>{{ tx.booking_date || 'N/A' }}</td>
+                  <td>{{ tx.booking_text }}</td>
+                  <td>{{ tx.booking_type }}</td>
+                  <td class="amount">{{ tx.booking_amount }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div v-else class="preview-empty">
+          <p>Keine Vorschau verfügbar</p>
+          <p class="hint">Lade eine CSV-Datei hoch, um die Transaktionen hier zu sehen.</p>
+        </div>
+      </section>
+    </div>
 
     <footer class="composer">
       <input
@@ -435,14 +467,32 @@ async function sendChat() {
 </script>
 
 <style scoped>
-.shell { max-width: 720px; margin: 0 auto; padding: 14px; display:flex; flex-direction:column; gap:12px; min-height: 100vh; }
+.shell { max-width: 100%; margin: 0 auto; padding: 14px; display:flex; flex-direction:column; gap:12px; min-height: 100vh; }
 .top { padding: 6px 2px; }
 .brand { font-weight: 700; font-size: 20px; }
 .sub { color:#666; font-size: 14px; margin-top: 4px; }
-.chat { flex: 1; display:flex; flex-direction:column; gap: 12px; padding: 8px 0; }
+
+.content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; }
+
+.chat { display:flex; flex-direction:column; gap: 12px; padding: 8px 0; overflow-y: auto; }
 .bubble { max-width: 92%; padding: 12px 12px; border-radius: 16px; border: 1px solid #eee; background:#fff; }
 .bubble.user { margin-left: auto; background:#fafafa; }
 .text { white-space: pre-wrap; line-height: 1.35; }
+
+.preview { display: flex; flex-direction: column; overflow: hidden; border: 1px solid #eee; border-radius: 12px; background: #fff; }
+.preview-container { display: flex; flex-direction: column; height: 100%; }
+.preview-title { padding: 12px 16px; margin: 0; font-size: 16px; font-weight: 600; border-bottom: 1px solid #eee; }
+.table-wrapper { flex: 1; overflow-y: auto; }
+.tx-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tx-table thead { position: sticky; top: 0; background: #f9f9f9; z-index: 1; }
+.tx-table th { text-align: left; padding: 10px 12px; font-weight: 600; border-bottom: 2px solid #ddd; }
+.tx-table td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
+.tx-table tr:hover { background: #fafafa; }
+.tx-table .amount { text-align: right; font-family: monospace; }
+.preview-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #999; padding: 40px; text-align: center; }
+.preview-empty p { margin: 0; }
+.preview-empty .hint { font-size: 13px; margin-top: 8px; }
+
 .composer { display:flex; gap: 10px; padding: 10px 0 4px; }
 .input { flex: 1; border: 1px solid #ddd; border-radius: 14px; padding: 12px; font-size: 15px; }
 .send { border:1px solid #ddd; border-radius: 14px; padding: 12px 14px; background: #fff; }
