@@ -22,7 +22,7 @@
               {{ showOriginal ? 'Original' : 'Anonymisiert' }}
             </button>
           </div>
-          <div class="table-wrapper">
+          <div class="table-wrapper" @mouseup="handleTextSelection">
             <table class="tx-table">
               <thead>
                 <tr>
@@ -49,6 +49,12 @@
         </div>
       </section>
     </div>
+
+    <!-- Floating selection button -->
+    <button v-if="selectedText && selectionPosition" class="selection-button"
+      :style="{ left: selectionPosition.x + 'px', top: selectionPosition.y + 'px' }" @click="createRuleFromSelection">
+      Regel erstellen
+    </button>
 
     <footer class="composer">
       <input class="input" v-model="composer" :disabled="busy" placeholder="Schreib mir z.B. 'Zeig mir alle Abos'..."
@@ -87,6 +93,10 @@ const pendingAlias = ref<string>('');
 const pendingPreview = ref<{ original: any[]; anonymized: any[] } | null>(null);
 const showOriginal = ref(false);
 const actionRefreshKey = ref(0);
+
+// Text selection for rule creation
+const selectedText = ref('');
+const selectionPosition = ref<{ x: number, y: number } | null>(null);
 
 // Computed property for transactions to display in preview
 const displayedTransactions = computed(() => {
@@ -188,6 +198,41 @@ async function onFile(file: File) {
   }
 }
 
+function handleTextSelection(event: MouseEvent) {
+  const selection = window.getSelection();
+  const text = selection?.toString().trim();
+
+  if (text && text.length > 0) {
+    selectedText.value = text;
+    selectionPosition.value = { x: event.clientX, y: event.clientY };
+  } else {
+    clearSelection();
+  }
+}
+
+function clearSelection() {
+  selectedText.value = '';
+  selectionPosition.value = null;
+  window.getSelection()?.removeAllRanges();
+}
+
+function createRuleFromSelection() {
+  if (!selectedText.value) return;
+
+  ruleCreationDraft.value = { example: selectedText.value };
+  ruleCreationState.value = 'awaiting_replacement';
+
+  pushAssistant(
+    `Ich schlage vor: "${selectedText.value}"
+
+Ersetzen durch?`,
+    [{ type: 'text', label: 'Ersetzen durch', placeholder: 'z.B. [IBAN]' }]
+  );
+
+  clearSelection();
+  scrollChatToBottom();
+}
+
 async function onAction(value: string) {
   if (!value) return;
 
@@ -279,9 +324,12 @@ async function onAction(value: string) {
     const generatedPattern = generatePattern(ruleCreationDraft.value.example);
     ruleCreationDraft.value.pattern = generatedPattern;
 
+    const suggestedName = `"${ruleCreationDraft.value.example}" → "${value}"`;
+
     pushAssistant(
       `Ich schlage vor: "${generatedPattern}" → "${value}"\n\nName für diese Regel?`,
       [
+        { type: 'button', label: suggestedName, value: `rulename:${suggestedName}` },
         { type: 'button', label: 'IBAN Maskierung', value: 'rulename:IBAN Maskierung' },
         { type: 'button', label: 'Bankdaten', value: 'rulename:Bankdaten' },
         { type: 'button', label: 'Kontonummer', value: 'rulename:Kontonummer' },
@@ -682,6 +730,27 @@ async function sendChat() {
 .preview-empty .hint {
   font-size: 13px;
   margin-top: 8px;
+}
+
+.selection-button {
+  position: fixed;
+  padding: 8px 12px;
+  background: #1a73e8;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  transition: all 0.2s;
+  transform: translate(-50%, -120%);
+}
+
+.selection-button:hover {
+  background: #1557b0;
+  transform: translate(-50%, -120%) translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .composer {
