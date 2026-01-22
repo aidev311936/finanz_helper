@@ -34,7 +34,7 @@
 import { onMounted, ref } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
 import type { Action, ChatMessage } from "./types";
-import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, runCategorization, sendChat as apiSendChat, fetchAnonRules, createAnonRule } from "./api";
+import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, sendChat as apiSendChat, fetchAnonRules, createAnonRule } from "./api";
 import type { BankMapping } from "./lib/types";
 import { buildMaskedTransactions, detectBankAndPrepare, buildOriginalTransactions } from "./lib/importPipeline";
 import { applyAnonymization } from "./lib/anonymize";

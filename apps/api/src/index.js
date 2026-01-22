@@ -248,20 +248,6 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
   res.json({ data: { inserted, skipped_duplicates } });
 });
 
-// Enqueue categorization job
-app.post("/api/categorization/run", requireToken, async (req, res) => {
-  const import_id = Number(req.body?.import_id);
-  if (!import_id) return res.status(400).json({ error: "import_id_required" });
-
-  const r = await pool.query(
-    `INSERT INTO jobs(token, type, payload)
-     VALUES($1,'categorize_import', jsonb_build_object('import_id',$2::bigint))
-     RETURNING id`,
-    [req.token, import_id]
-  );
-
-  res.json({ data: { job_id: r.rows[0].id } });
-});
 
 // Anonymization rules
 app.get("/api/anon-rules", requireToken, async (req, res) => {

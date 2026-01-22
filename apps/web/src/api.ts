@@ -109,15 +109,6 @@ export async function uploadMaskedTransactions(payload: {
   return json.data;
 }
 
-export async function runCategorization(import_id: number): Promise<{ job_id: number }> {
-  const r = await authFetch(`/api/categorization/run`, {
-    method: "POST",
-    body: JSON.stringify({ import_id }),
-  });
-  if (!r.ok) throw new Error(`categorize_failed_${r.status}`);
-  const json = await r.json();
-  return json.data;
-}
 
 export async function sendChat(content: string): Promise<{ message: string; actions?: any[] }> {
   const r = await authFetch(`/api/chat`, {

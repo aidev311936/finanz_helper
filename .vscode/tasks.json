@@ -11,7 +11,7 @@
         {
             "label": "Docker: Build",
             "type": "shell",
-            "command": "docker-compose build",
+            "command": "docker compose up --build",
             "group": "build",
             "problemMatcher": [],
             "detail": "Builds the project containers"
@@ -19,14 +19,14 @@
         {
             "label": "DB: Reset",
             "type": "shell",
-            "command": "docker-compose down -v && docker-compose up -d postgres",
+            "command": "docker compose down -v && docker compose up -d postgres",
             "problemMatcher": [],
             "detail": "Stops containers, removes volumes (clears DB), and restarts Postgres"
         },
         {
             "label": "DB: SQL Shell",
             "type": "shell",
-            "command": "docker-compose exec postgres psql -U haushalt -d haushalt",
+            "command": "docker compose exec postgres psql -U haushalt -d haushalt",
             "problemMatcher": [],
             "isBackground": false,
             "presentation": {

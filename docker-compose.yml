@@ -43,26 +43,6 @@ services:
       timeout: 3s
       retries: 20
 
-  worker:
-    build:
-      context: ./apps/worker
-    environment:
-      NODE_ENV: development
-      DATABASE_URL: postgres://haushalt:haushalt@postgres:5432/haushalt
-      WORKER_ID: worker-1
-      LLM_PROVIDER: openai
-      LLM_MODEL: gpt-4o-mini
-      OPENAI_BASE_URL: https://api.openai.com/v1
-      OPENAI_API_KEY: ""
-      GEMINI_API_KEY: ""
-      GEMINI_BASE_URL: https://generativelanguage.googleapis.com/v1beta
-      LOCAL_LLM_BASE_URL: http://local-llm:8000/v1
-      LOCAL_LLM_API_KEY: ""
-    depends_on:
-      postgres:
-        condition: service_healthy
-      api:
-        condition: service_healthy
 
   web:
     build:
