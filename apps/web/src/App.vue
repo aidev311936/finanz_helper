@@ -15,6 +15,11 @@
       </section>
 
       <section class="preview">
+        <!-- Progress Checklist -->
+        <ProgressChecklist v-if="pendingPreview" :steps="importSteps" :current-step="currentImportStep"
+          :account-alias="pendingAlias" :rules="userRules" :active-rules="ruleToggles" @change-alias="handleAliasChange"
+          @rule-context="handleRuleContext" />
+
         <div v-if="pendingPreview" class="preview-container">
           <div class="preview-header">
             <h3 class="preview-title">Transaktionen Vorschau ({{ displayedTransactions.length }})</h3>
@@ -67,6 +72,7 @@
 <script setup lang="ts">
 import { onMounted, ref, nextTick, computed } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
+import ProgressChecklist from "./components/ProgressChecklist.vue";
 import type { Action, ChatMessage } from "./types";
 import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, sendChat as apiSendChat, fetchAnonRules, createAnonRule } from "./api";
 import type { BankMapping } from "./lib/types";
@@ -102,6 +108,50 @@ const selectionPosition = ref<{ x: number, y: number } | null>(null);
 const displayedTransactions = computed(() => {
   if (!pendingPreview.value) return [];
   return showOriginal.value ? pendingPreview.value.original : pendingPreview.value.anonymized;
+});
+
+// Import progress tracking
+const importSteps = computed(() => [
+  {
+    id: 'csv',
+    label: 'CSV Hochladen',
+    meta: pending.value?.mapping?.bank_name || '',
+    completed: !!pending.value
+  },
+  {
+    id: 'alias',
+    label: 'Konto Alias',
+    meta: pendingAlias.value,
+    completed: !!pendingAlias.value,
+    editable: true
+  },
+  {
+    id: 'rules',
+    label: 'Anonymisierungsregeln erstellt',
+    completed: userRules.value.length > 0,
+    children: userRules.value.map((r: any) => ({
+      id: Number(r.id),
+      label: r.name,
+      active: ruleToggles.value.has(Number(r.id)),
+      editable: true,
+      deletable: true
+    }))
+  },
+  {
+    id: 'save',
+    label: 'Anonymisierte Daten speichern',
+    completed: false
+  }
+]);
+
+const currentImportStep = computed(() => {
+  const steps = importSteps.value;
+  const completed = steps.filter((s: any) => s.completed).length;
+  return {
+    current: completed,
+    total: steps.length,
+    percentage: Math.round((completed / steps.length) * 100)
+  };
 });
 
 const chatContainer = ref<HTMLElement | null>(null);
@@ -231,6 +281,82 @@ Ersetzen durch?`,
 
   clearSelection();
   scrollChatToBottom();
+}
+
+function handleAliasChange() {
+  pushUser('Konto-Alias ändern');
+  pushAssistant(
+    'Wie soll das Konto heißen?',
+    [
+      { type: 'button', label: pendingAlias.value || 'Hauptkonto', value: `alias:${pendingAlias.value}` },
+      { type: 'text', label: 'Neuer Alias', placeholder: 'z.B. Sparkonto' }
+    ]
+  );
+}
+
+async function handleRuleContext(action: string, ruleId: number) {
+  const rule = userRules.value.find((r: any) => Number(r.id) === ruleId);
+  if (!rule) return;
+
+  switch (action) {
+    case 'toggle':
+      await onAction(`toggle:${ruleId}`);
+      break;
+
+    case 'edit':
+      pushUser(`Regel "${rule.name}" ändern`);
+      pushAssistant(
+        `Aktuelle Regel: "${rule.pattern}" → "${rule.replacement}"
+
+Was möchtest du ändern?`,
+        [
+          { type: 'text', label: 'Neues Pattern', placeholder: rule.pattern },
+          { type: 'text', label: 'Neuer Replacement', placeholder: rule.replacement }
+        ]
+      );
+      break;
+
+    case 'delete':
+      pushUser(`Regel "${rule.name}" löschen`);
+      await deleteRule(ruleId);
+      break;
+  }
+}
+
+async function deleteRule(ruleId: number) {
+  const rule = userRules.value.find((r: any) => Number(r.id) === ruleId);
+  const ruleName = rule?.name || 'Regel';
+
+  busy.value = true;
+  try {
+    const res = await fetch(`/api/anon-rules/${ruleId}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+
+    if (!res.ok) throw new Error('Delete failed');
+
+    userRules.value = userRules.value.filter((r: any) => Number(r.id) !== ruleId);
+    ruleToggles.value.delete(ruleId);
+
+    pushAssistant(`✓ Regel "${ruleName}" gelöscht`);
+
+    if (pendingPreview.value) {
+      const activeRules = userRules.value.filter((r: any) =>
+        ruleToggles.value.has(Number(r.id))
+      );
+      const { data: anonymized } = await applyAnonymization(
+        pendingPreview.value.original,
+        activeRules
+      );
+      pendingPreview.value.anonymized = anonymized;
+    }
+  } catch (e) {
+    console.error(e);
+    pushAssistant('⚠️ Fehler beim Löschen der Regel');
+  } finally {
+    busy.value = false;
+  }
 }
 
 async function onAction(value: string) {
