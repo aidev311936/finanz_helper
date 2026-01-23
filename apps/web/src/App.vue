@@ -74,7 +74,7 @@ import { onMounted, ref, nextTick, computed } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
 import ProgressChecklist from "./components/ProgressChecklist.vue";
 import type { Action, ChatMessage } from "./types";
-import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, sendChat as apiSendChat, fetchAnonRules, createAnonRule } from "./api";
+import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, sendChat as apiSendChat, fetchAnonRules, createAnonRule, deleteAnonRule } from "./api";
 import type { BankMapping } from "./lib/types";
 import { buildMaskedTransactions, detectBankAndPrepare, buildOriginalTransactions } from "./lib/importPipeline";
 import { applyAnonymization } from "./lib/anonymize";
@@ -95,6 +95,7 @@ const userRules = ref<any[]>([]);
 const ruleToggles = ref<Set<number>>(new Set());
 const ruleCreationState = ref<'idle' | 'awaiting_example' | 'awaiting_replacement' | 'awaiting_name'>('idle');
 const ruleCreationDraft = ref<any>({});
+const ruleEditState = ref<{ ruleId: number; step: 'awaiting_pattern' | 'awaiting_replacement' } | null>(null);
 const pendingAlias = ref<string>('');
 const pendingPreview = ref<{ original: any[]; anonymized: any[] } | null>(null);
 const showOriginal = ref(false);
@@ -305,13 +306,21 @@ async function handleRuleContext(action: string, ruleId: number) {
 
     case 'edit':
       pushUser(`Regel "${rule.name}" ändern`);
+
+      // Set edit state to track this rule
+      ruleEditState.value = {
+        ruleId: ruleId,
+        step: 'awaiting_pattern',
+        currentRule: rule
+      };
+
       pushAssistant(
         `Aktuelle Regel: "${rule.pattern}" → "${rule.replacement}"
 
 Was möchtest du ändern?`,
         [
-          { type: 'text', label: 'Neues Pattern', placeholder: rule.pattern },
-          { type: 'text', label: 'Neuer Replacement', placeholder: rule.replacement }
+          { type: 'text', label: 'Neues Pattern (was ersetzen)', placeholder: rule.pattern },
+          { type: 'text', label: 'Neuer Replacement (womit ersetzen)', placeholder: rule.replacement }
         ]
       );
       break;
@@ -329,12 +338,7 @@ async function deleteRule(ruleId: number) {
 
   busy.value = true;
   try {
-    const res = await fetch(`/api/anon-rules/${ruleId}`, {
-      method: 'DELETE',
-      credentials: 'include'
-    });
-
-    if (!res.ok) throw new Error('Delete failed');
+    await deleteAnonRule(ruleId);
 
     userRules.value = userRules.value.filter((r: any) => Number(r.id) !== ruleId);
     ruleToggles.value.delete(ruleId);

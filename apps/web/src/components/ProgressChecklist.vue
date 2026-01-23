@@ -23,32 +23,31 @@
                 <!-- Child rules -->
                 <div v-if="step.children" class="step-children">
                     <div v-for="child in step.children" :key="child.id" class="child-item"
-                        :class="{ inactive: !child.active }" @contextmenu.prevent="showContextMenu($event, child.id)">
+                        :class="{ inactive: !child.active }">
                         <span class="child-checkbox">{{ child.active ? '✓' : '✗' }}</span>
                         <span class="child-label">{{ child.label }}</span>
+
+                        <!-- Inline action buttons -->
+                        <div class="child-actions">
+                            <button class="action-btn toggle-btn" :class="{ active: child.active }"
+                                @click="handleAction('toggle', child.id)"
+                                :title="child.active ? 'Deaktivieren' : 'Aktivieren'">
+                                {{ child.active ? '✗' : '✓' }}
+                            </button>
+                            <button class="action-btn delete-btn" @click="handleAction('delete', child.id)"
+                                title="Löschen">
+                                🗑
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        <!-- Context Menu -->
-        <div v-if="contextMenu" class="context-menu" :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-            @click.stop>
-            <div class="menu-item" @click="handleAction('toggle', contextMenu.ruleId)">
-                {{ isActive(contextMenu.ruleId) ? '✗ Deaktivieren' : '✓ Aktivieren' }}
-            </div>
-            <div class="menu-item" @click="handleAction('edit', contextMenu.ruleId)">
-                ✏ Ändern
-            </div>
-            <div class="menu-item danger" @click="handleAction('delete', contextMenu.ruleId)">
-                🗑 Löschen
             </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
 
 const props = defineProps<{
     steps: any[];
@@ -63,28 +62,10 @@ const emit = defineEmits<{
     (e: 'rule-context', action: string, ruleId: number): void;
 }>();
 
-const contextMenu = ref<{ ruleId: number; x: number; y: number } | null>(null);
-
 const progress = computed(() => props.currentStep);
-
-function showContextMenu(event: MouseEvent, ruleId: number) {
-    contextMenu.value = { ruleId, x: event.clientX, y: event.clientY };
-}
-
-function isActive(ruleId: number) {
-    return props.activeRules.has(ruleId);
-}
 
 function handleAction(action: string, ruleId: number) {
     emit('rule-context', action, ruleId);
-    contextMenu.value = null;
-}
-
-// Close context menu on click outside
-if (typeof window !== 'undefined') {
-    window.addEventListener('click', () => {
-        contextMenu.value = null;
-    });
 }
 </script>
 
@@ -193,7 +174,6 @@ if (typeof window !== 'undefined') {
     gap: 6px;
     padding: 4px 6px;
     border-radius: 4px;
-    cursor: pointer;
     transition: background 0.2s;
 }
 
@@ -217,35 +197,44 @@ if (typeof window !== 'undefined') {
 
 .child-label {
     font-size: 12px;
+    flex: 1;
 }
 
-.context-menu {
-    position: fixed;
-    background: white;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-    z-index: 1001;
-    min-width: 180px;
-    overflow: hidden;
-}
-
-.menu-item {
-    padding: 10px 14px;
-    cursor: pointer;
-    transition: background 0.2s;
-    font-size: 13px;
+.child-actions {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s;
 }
 
-.menu-item:hover {
+.child-item:hover .child-actions {
+    opacity: 1;
+}
+
+.action-btn {
+    padding: 2px 6px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.2s;
+}
+
+.action-btn:hover {
     background: #f5f5f5;
+    border-color: #999;
 }
 
-.menu-item.danger:hover {
+.toggle-btn.active {
+    background: #e8f5e9;
+    border-color: #4caf50;
+    color: #2e7d32;
+}
+
+.delete-btn:hover {
     background: #ffebee;
+    border-color: #e57373;
     color: #c62828;
 }
 </style>
