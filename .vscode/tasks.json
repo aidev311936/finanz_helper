@@ -36,6 +36,17 @@
                 "panel": "shared"
             },
             "detail": "Opens psql interactive shell in the postgres container"
+        },
+        {
+            "label": "Docker: Restart Web",
+            "type": "shell",
+            "command": "docker compose restart web",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "detail": "Restarts the web container"
         }
     ]
 }
