@@ -16,8 +16,8 @@
 
       <section class="preview">
         <!-- Progress Checklist -->
-        <ProgressChecklist v-if="pending || pendingPreview" :steps="importSteps" :current-step="currentImportStep"
-          :account-alias="pendingAlias" :rules="userRules" :active-rules="ruleToggles" @change-alias="handleAliasChange"
+        <ProgressChecklist :steps="importSteps" :current-step="currentImportStep" :account-alias="pendingAlias"
+          :rules="userRules" :active-rules="ruleToggles" @change-alias="handleAliasChange"
           @rule-context="handleRuleContext" />
 
         <div v-if="pendingPreview" class="preview-container">
