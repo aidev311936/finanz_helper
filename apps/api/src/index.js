@@ -254,7 +254,7 @@ app.get("/api/anon-rules", requireToken, async (req, res) => {
   const r = await pool.query(
     `SELECT id, name, rule_type, pattern, flags, replacement, description, enabled
      FROM anon_rules
-     WHERE token=$1 AND enabled=true
+     WHERE token=$1 AND enabled=true AND deleted_on IS NULL
      ORDER BY created_on ASC`,
     [req.token]
   );
@@ -318,7 +318,7 @@ app.put("/api/anon-rules/:id", requireToken, async (req, res) => {
 app.delete("/api/anon-rules/:id", requireToken, async (req, res) => {
   const id = Number(req.params.id);
   await pool.query(
-    `DELETE FROM anon_rules WHERE id=$1 AND token=$2`,
+    `UPDATE anon_rules SET deleted_on = NOW() WHERE id=$1 AND token=$2 AND deleted_on IS NULL`,
     [id, req.token]
   );
   res.json({ ok: true });
