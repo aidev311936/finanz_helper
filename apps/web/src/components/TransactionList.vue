@@ -2,7 +2,31 @@
     <div class="transaction-list">
         <div class="list-header">
             <h3>Gespeicherte Transaktionen</h3>
-            <div class="stats">{{ transactions.length }} Transaktionen</div>
+            <div class="stats">{{ filteredTransactions.length }} / {{ transactions.length }} Transaktionen</div>
+        </div>
+
+        <div class="filter-bar">
+            <div class="status-filters">
+                <button class="filter-pill" :class="{ active: activeFilter === 'all' }" @click="activeFilter = 'all'">
+                    Alle
+                </button>
+                <button class="filter-pill" :class="{ active: activeFilter === 'anonymized' }"
+                    @click="activeFilter = 'anonymized'">
+                    ✓ Anonymisiert
+                </button>
+                <button class="filter-pill" :class="{ active: activeFilter === 'already_anonymous' }"
+                    @click="activeFilter = 'already_anonymous'">
+                    ◉ Bereits anonym
+                </button>
+                <button class="filter-pill" :class="{ active: activeFilter === 'dont_care' }"
+                    @click="activeFilter = 'dont_care'">
+                    ○ Keine Aktion
+                </button>
+            </div>
+            <label class="hide-toggle">
+                <input type="checkbox" v-model="hideCompleted" />
+                Fertige Umsätze ausblenden
+            </label>
         </div>
 
         <div v-if="loading" class="loading">Lade Transaktionen...</div>
@@ -25,7 +49,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="tx in transactions" :key="tx.id"
+                    <tr v-for="tx in filteredTransactions" :key="tx.id"
                         :class="{ 'completed': tx.anonymity_status === 'already_anonymous' }">
                         <td>
                             <StatusBadge :status="tx.anonymity_status" />
@@ -63,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { fetchMaskedTransactions, fetchAnonRules, updateTransactionStatus } from '../api';
 import StatusBadge from './StatusBadge.vue';
 import RuleBadge from './RuleBadge.vue';
@@ -74,6 +98,8 @@ const loading = ref(true);
 const error = ref('');
 const openMenuId = ref<number | null>(null);
 const updating = ref<number | null>(null);
+const hideCompleted = ref(false);
+const activeFilter = ref<'all' | 'anonymized' | 'already_anonymous' | 'dont_care'>('all');
 
 onMounted(async () => {
     try {
@@ -108,6 +134,22 @@ function formatDate(iso: string | null) {
     }
 }
 
+const filteredTransactions = computed(() => {
+    let result = transactions.value;
+
+    // Apply status filter
+    if (activeFilter.value !== 'all') {
+        result = result.filter(tx => tx.anonymity_status === activeFilter.value);
+    }
+
+    // Apply hide completed filter
+    if (hideCompleted.value) {
+        result = result.filter(tx => tx.anonymity_status !== 'already_anonymous');
+    }
+
+    return result;
+});
+
 function toggleMenu(txId: number) {
     if (openMenuId.value === txId) {
         openMenuId.value = null;
@@ -122,6 +164,13 @@ function closeMenu() {
 
 async function changeStatus(txId: number, newStatus: 'dont_care' | 'anonymized' | 'already_anonymous') {
     if (updating.value === txId) return;
+
+    const tx = transactions.value.find(t => t.id === txId);
+
+    // Readonly protection: prevent changing status of already_anonymous transactions
+    if (tx && tx.anonymity_status === 'already_anonymous' && newStatus !== 'dont_care') {
+        return; // Silently ignore
+    }
 
     try {
         updating.value = txId;
@@ -177,6 +226,58 @@ async function changeStatus(txId: number, newStatus: 'dont_care' | 'anonymized' 
 .stats {
     font-size: 14px;
     color: #666;
+}
+
+.filter-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 1px solid #eee;
+    background: #fafafa;
+    flex-shrink: 0;
+}
+
+.status-filters {
+    display: flex;
+    gap: 8px;
+}
+
+.filter-pill {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 16px;
+    background: white;
+    font-size: 13px;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-pill:hover {
+    background: #f0f0f0;
+    border-color: #bbb;
+}
+
+.filter-pill.active {
+    background: #1976d2;
+    color: white;
+    border-color: #1976d2;
+    font-weight: 500;
+}
+
+.hide-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #666;
+    cursor: pointer;
+    user-select: none;
+}
+
+.hide-toggle input[type="checkbox"] {
+    cursor: pointer;
 }
 
 .loading,
