@@ -169,6 +169,54 @@ function computeFallbackHash(t, amountValue) {
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
 
+/**
+ * Apply active anonymization rules to booking text and track which rules matched.
+ * @param {*} client - Database client
+ * @param {string} token - User token
+ * @param {string} bookingText - Original booking text
+ * @returns {Promise<{anonymized: string, appliedRuleIds: number[], status: string}>}
+ */
+async function applyAnonymizationRules(client, token, bookingText) {
+  // Fetch all active rules ordered by creation date
+  const rulesResult = await client.query(
+    `SELECT id, pattern, flags, replacement
+     FROM anon_rules
+     WHERE token=$1 AND enabled=true AND deleted_on IS NULL
+     ORDER BY created_on ASC`,
+    [token]
+  );
+
+  let anonymized = bookingText;
+  const appliedRuleIds = [];
+
+  // Apply each rule in order
+  for (const rule of rulesResult.rows) {
+    try {
+      const regex = new RegExp(rule.pattern, rule.flags || 'gi');
+      const before = anonymized;
+      anonymized = anonymized.replace(regex, rule.replacement);
+
+      // If text changed, track this rule
+      if (before !== anonymized) {
+        appliedRuleIds.push(rule.id);
+      }
+    } catch (e) {
+      console.error(`[anon] regex error for rule ${rule.id}:`, e.message);
+    }
+  }
+
+  // Determine anonymity status
+  let status = 'dont_care';
+  if (appliedRuleIds.length > 0) {
+    status = 'anonymized';
+  } else if (bookingText === anonymized && rulesResult.rows.length > 0) {
+    // No rules applied but rules exist - might already be anonymous
+    status = 'already_anonymous';
+  }
+
+  return { anonymized, appliedRuleIds, status };
+}
+
 // Transactions bulk insert
 app.post("/api/transactions/bulk", requireToken, async (req, res) => {
   const import_id = Number(req.body?.import_id);
@@ -189,7 +237,7 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
       const booking_date_iso = t.booking_date_iso || null;
       const booking_date_raw = t.booking_date_raw ? String(t.booking_date_raw) : null;
       const booking_date = t.booking_date ? String(t.booking_date) : null;
-      const booking_text = String(t.booking_text || "");
+      const booking_text_original = String(t.booking_text || "");
       const booking_type = t.booking_type ? String(t.booking_type) : "";
       const booking_amount = t.booking_amount ? String(t.booking_amount) : null;
       const amount_value = toNumberOrNull(t.booking_amount_value);
@@ -198,9 +246,12 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
         booking_hash = computeFallbackHash(t, amount_value);
       }
 
-      if (!booking_text) {
+      if (!booking_text_original) {
         continue;
       }
+
+      // Apply anonymization rules
+      const anonResult = await applyAnonymizationRules(client, req.token, booking_text_original);
 
       const r = await client.query(
         `INSERT INTO masked_transactions(
@@ -208,8 +259,9 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
           bank_name, booking_date, booking_date_raw, booking_date_iso,
           booking_text, booking_type,
           booking_amount, booking_amount_value,
-          booking_hash
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          booking_hash,
+          applied_rules, anonymity_status
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
         ON CONFLICT (account_id, booking_hash) DO NOTHING
         RETURNING id`,
         [
@@ -220,11 +272,13 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
           booking_date,
           booking_date_raw,
           booking_date_iso,
-          booking_text,
+          anonResult.anonymized, // Use anonymized text
           booking_type,
           booking_amount,
           amount_value,
           booking_hash,
+          anonResult.appliedRuleIds, // Track which rules were applied
+          anonResult.status, // Store anonymity status
         ]
       );
       if (r.rowCount === 1) inserted++;
@@ -246,6 +300,56 @@ app.post("/api/transactions/bulk", requireToken, async (req, res) => {
   }
 
   res.json({ data: { inserted, skipped_duplicates } });
+});
+
+// Get masked transactions with applied rules
+app.get("/api/masked-transactions", requireToken, async (req, res) => {
+  const account_id = req.query.account_id ? Number(req.query.account_id) : null;
+
+  const query = account_id
+    ? `SELECT id, account_id, import_id, bank_name, booking_date, booking_date_iso,
+              booking_text, booking_type, booking_amount, booking_amount_value,
+              applied_rules, anonymity_status, created_at
+       FROM masked_transactions
+       WHERE token=$1 AND account_id=$2
+       ORDER BY booking_date_iso DESC NULLS LAST, id DESC`
+    : `SELECT id, account_id, import_id, bank_name, booking_date, booking_date_iso,
+              booking_text, booking_type, booking_amount, booking_amount_value,
+              applied_rules, anonymity_status, created_at
+       FROM masked_transactions
+       WHERE token=$1
+       ORDER BY booking_date_iso DESC NULLS LAST, id DESC`;
+
+  const params = account_id ? [req.token, account_id] : [req.token];
+  const r = await pool.query(query, params);
+
+  res.json({ data: r.rows });
+});
+
+// Update transaction anonymity status
+app.patch("/api/masked-transactions/:id/status", requireToken, async (req, res) => {
+  const id = Number(req.params.id);
+  const { status } = req.body;
+
+  // Validate status
+  const validStatuses = ['dont_care', 'anonymized', 'already_anonymous'];
+  if (!status || !validStatuses.includes(status)) {
+    return res.status(400).json({ error: "invalid_status", valid: validStatuses });
+  }
+
+  const r = await pool.query(
+    `UPDATE masked_transactions
+     SET anonymity_status = $1
+     WHERE id=$2 AND token=$3
+     RETURNING id, booking_text, anonymity_status, applied_rules`,
+    [status, id, req.token]
+  );
+
+  if (r.rowCount === 0) {
+    return res.status(404).json({ error: "transaction_not_found" });
+  }
+
+  res.json({ data: r.rows[0] });
 });
 
 
