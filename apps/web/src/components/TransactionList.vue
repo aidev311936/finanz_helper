@@ -21,10 +21,12 @@
                         <th>Regeln</th>
                         <th>Typ</th>
                         <th class="amount-col">Betrag</th>
+                        <th class="action-col">Aktion</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="tx in transactions" :key="tx.id">
+                    <tr v-for="tx in transactions" :key="tx.id"
+                        :class="{ 'completed': tx.anonymity_status === 'already_anonymous' }">
                         <td>
                             <StatusBadge :status="tx.anonymity_status" />
                         </td>
@@ -35,6 +37,24 @@
                         </td>
                         <td class="type-col">{{ tx.booking_type || '-' }}</td>
                         <td class="amount-col">{{ tx.booking_amount || '-' }}</td>
+                        <td class="action-col">
+                            <div class="action-menu" v-if="openMenuId === tx.id" @click.stop>
+                                <div class="menu-backdrop" @click="closeMenu"></div>
+                                <div class="menu-dropdown">
+                                    <button class="menu-item" @click="changeStatus(tx.id, 'already_anonymous')"
+                                        :disabled="tx.anonymity_status === 'already_anonymous'">
+                                        ◉ Als anonym markieren
+                                    </button>
+                                    <button class="menu-item" @click="changeStatus(tx.id, 'dont_care')"
+                                        :disabled="tx.anonymity_status === 'dont_care'">
+                                        ○ Status zurücksetzen
+                                    </button>
+                                </div>
+                            </div>
+                            <button class="action-button" @click.stop="toggleMenu(tx.id)">
+                                ⋮
+                            </button>
+                        </td>
                     </tr>
                 </tbody>
             </table>
@@ -44,7 +64,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { fetchMaskedTransactions, fetchAnonRules } from '../api';
+import { fetchMaskedTransactions, fetchAnonRules, updateTransactionStatus } from '../api';
 import StatusBadge from './StatusBadge.vue';
 import RuleBadge from './RuleBadge.vue';
 
@@ -52,6 +72,8 @@ const transactions = ref<any[]>([]);
 const rules = ref<any[]>([]);
 const loading = ref(true);
 const error = ref('');
+const openMenuId = ref<number | null>(null);
+const updating = ref<number | null>(null);
 
 onMounted(async () => {
     try {
@@ -83,6 +105,46 @@ function formatDate(iso: string | null) {
         });
     } catch {
         return 'N/A';
+    }
+}
+
+function toggleMenu(txId: number) {
+    if (openMenuId.value === txId) {
+        openMenuId.value = null;
+    } else {
+        openMenuId.value = txId;
+    }
+}
+
+function closeMenu() {
+    openMenuId.value = null;
+}
+
+async function changeStatus(txId: number, newStatus: 'dont_care' | 'anonymized' | 'already_anonymous') {
+    if (updating.value === txId) return;
+
+    try {
+        updating.value = txId;
+        closeMenu();
+
+        // Optimistic update
+        const tx = transactions.value.find(t => t.id === txId);
+        if (tx) {
+            const oldStatus = tx.anonymity_status;
+            tx.anonymity_status = newStatus;
+
+            try {
+                await updateTransactionStatus(txId, newStatus);
+            } catch (e) {
+                // Revert on error
+                tx.anonymity_status = oldStatus;
+                console.error('Failed to update status:', e);
+                error.value = 'Fehler beim Aktualisieren des Status';
+                setTimeout(() => error.value = '', 3000);
+            }
+        }
+    } finally {
+        updating.value = null;
     }
 }
 </script>
@@ -179,6 +241,14 @@ function formatDate(iso: string | null) {
     background: #fafafa;
 }
 
+.tx-table tbody tr.completed {
+    opacity: 0.6;
+}
+
+.tx-table tbody tr.completed:hover {
+    opacity: 0.8;
+}
+
 .tx-table td {
     padding: 12px 16px;
     vertical-align: middle;
@@ -205,5 +275,86 @@ function formatDate(iso: string | null) {
     text-align: right;
     font-weight: 500;
     white-space: nowrap;
+}
+
+.action-col {
+    width: 60px;
+    text-align: center;
+    position: relative;
+}
+
+.action-button {
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    font-size: 16px;
+    color: #666;
+    transition: all 0.2s;
+}
+
+.action-button:hover {
+    background: #f5f5f5;
+    border-color: #bbb;
+}
+
+.action-menu {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+}
+
+.menu-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+}
+
+.menu-dropdown {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    min-width: 200px;
+    overflow: hidden;
+}
+
+.menu-item {
+    display: block;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    background: white;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    color: #333;
+    transition: background 0.15s;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.menu-item:last-child {
+    border-bottom: none;
+}
+
+.menu-item:hover:not(:disabled) {
+    background: #f5f5f5;
+}
+
+.menu-item:disabled {
+    color: #999;
+    cursor: not-allowed;
+    background: #fafafa;
 }
 </style>
