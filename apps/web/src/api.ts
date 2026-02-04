@@ -180,3 +180,26 @@ export async function deleteAnonRule(id: number): Promise<void> {
   });
   if (!r.ok) throw new Error(`delete_rule_failed_${r.status}`);
 }
+
+export async function fetchMaskedTransactions(accountId?: number): Promise<any[]> {
+  const url = accountId
+    ? `/api/masked-transactions?account_id=${accountId}`
+    : `/api/masked-transactions`;
+  const r = await authFetch(url);
+  if (!r.ok) throw new Error(`fetch_transactions_failed_${r.status}`);
+  const json = await r.json();
+  return json.data || [];
+}
+
+export async function updateTransactionStatus(
+  transactionId: number,
+  status: 'dont_care' | 'anonymized' | 'already_anonymous'
+): Promise<any> {
+  const r = await authFetch(`/api/masked-transactions/${transactionId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+  if (!r.ok) throw new Error(`update_status_failed_${r.status}`);
+  const json = await r.json();
+  return json.data;
+}

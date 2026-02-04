@@ -3,6 +3,14 @@
     <header class="top">
       <div class="brand">Haushaltmanager</div>
       <div class="sub">Minimiere Ausgaben – ohne Tabellen-Chaos.</div>
+      <div class="view-tabs">
+        <button class="view-tab" :class="{ active: currentView === 'import' }" @click="currentView = 'import'">
+          Import
+        </button>
+        <button class="view-tab" :class="{ active: currentView === 'saved' }" @click="currentView = 'saved'">
+          Gespeicherte Transaktionen
+        </button>
+      </div>
     </header>
 
     <div class="content-grid">
@@ -15,43 +23,49 @@
       </section>
 
       <section class="preview">
-        <!-- Progress Checklist -->
-        <ProgressChecklist :steps="importSteps" :current-step="currentImportStep" :account-alias="pendingAlias"
-          :rules="userRules" :active-rules="ruleToggles" @change-alias="handleAliasChange"
-          @rule-context="handleRuleContext" />
+        <!-- Import View -->
+        <div v-if="currentView === 'import'">
+          <!-- Progress Checklist -->
+          <ProgressChecklist :steps="importSteps" :current-step="currentImportStep" :account-alias="pendingAlias"
+            :rules="userRules" :active-rules="ruleToggles" @change-alias="handleAliasChange"
+            @rule-context="handleRuleContext" />
 
-        <div v-if="pendingPreview" class="preview-container">
-          <div class="preview-header">
-            <h3 class="preview-title">Transaktionen Vorschau ({{ displayedTransactions.length }})</h3>
-            <button class="view-toggle" @click="showOriginal = !showOriginal" :class="{ active: showOriginal }">
-              {{ showOriginal ? 'Original' : 'Anonymisiert' }}
-            </button>
+          <div v-if="pendingPreview" class="preview-container">
+            <div class="preview-header">
+              <h3 class="preview-title">Transaktionen Vorschau ({{ displayedTransactions.length }})</h3>
+              <button class="view-toggle" @click="showOriginal = !showOriginal" :class="{ active: showOriginal }">
+                {{ showOriginal ? 'Original' : 'Anonymisiert' }}
+              </button>
+            </div>
+            <div class="table-wrapper" @mouseup="handleTextSelection">
+              <table class="tx-table">
+                <thead>
+                  <tr>
+                    <th>Datum</th>
+                    <th>Buchungstext</th>
+                    <th>Typ</th>
+                    <th>Betrag</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(tx, idx) in displayedTransactions" :key="idx">
+                    <td>{{ tx.booking_date || 'N/A' }}</td>
+                    <td>{{ tx.booking_text }}</td>
+                    <td>{{ tx.booking_type }}</td>
+                    <td class="amount">{{ tx.booking_amount }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div class="table-wrapper" @mouseup="handleTextSelection">
-            <table class="tx-table">
-              <thead>
-                <tr>
-                  <th>Datum</th>
-                  <th>Buchungstext</th>
-                  <th>Typ</th>
-                  <th>Betrag</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(tx, idx) in displayedTransactions" :key="idx">
-                  <td>{{ tx.booking_date || 'N/A' }}</td>
-                  <td>{{ tx.booking_text }}</td>
-                  <td>{{ tx.booking_type }}</td>
-                  <td class="amount">{{ tx.booking_amount }}</td>
-                </tr>
-              </tbody>
-            </table>
+          <div v-else class="preview-empty">
+            <p>Keine Vorschau verfügbar</p>
+            <p class="hint">Lade eine CSV-Datei hoch, um die Transaktionen hier zu sehen.</p>
           </div>
         </div>
-        <div v-else class="preview-empty">
-          <p>Keine Vorschau verfügbar</p>
-          <p class="hint">Lade eine CSV-Datei hoch, um die Transaktionen hier zu sehen.</p>
-        </div>
+
+        <!-- Saved Transactions View -->
+        <TransactionList v-else-if="currentView === 'saved'" />
       </section>
     </div>
 
@@ -73,6 +87,7 @@
 import { onMounted, ref, nextTick, computed } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
 import ProgressChecklist from "./components/ProgressChecklist.vue";
+import TransactionList from "./components/TransactionList.vue";
 import type { Action, ChatMessage } from "./types";
 import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, sendChat as apiSendChat, fetchAnonRules, createAnonRule, deleteAnonRule } from "./api";
 import type { BankMapping } from "./lib/types";
@@ -82,6 +97,7 @@ import { applyAnonymization } from "./lib/anonymize";
 const messages = ref<ChatMessage[]>([]);
 const composer = ref("");
 const busy = ref(false);
+const currentView = ref<'import' | 'saved'>('import');
 
 const mappings = ref<BankMapping[]>([]);
 const pending = ref<null | {
@@ -714,6 +730,35 @@ async function sendChat() {
   color: #666;
   font-size: 14px;
   margin-top: 4px;
+}
+
+.view-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.view-tab {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-tab:hover {
+  background: #f5f5f5;
+  border-color: #bbb;
+}
+
+.view-tab.active {
+  background: #1976d2;
+  color: white;
+  border-color: #1976d2;
+  font-weight: 500;
 }
 
 .content-grid {
