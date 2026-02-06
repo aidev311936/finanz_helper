@@ -1,7 +1,7 @@
 <template>
   <main class="shell">
     <header class="top">
-      <div class="brand">Haushaltmanager</div>
+      <div class="brand">Haushalthelfer</div>
       <div class="sub">Minimiere Ausgaben – ohne Tabellen-Chaos.</div>
       <div class="view-tabs">
         <button class="view-tab" :class="{ active: currentView === 'import' }" @click="currentView = 'import'">
@@ -203,7 +203,7 @@ function generatePattern(example: string): string {
 
 function startFlow() {
   pushAssistant(
-    "Hi! Ich bin dein KI‑Haushaltmanager. Lade zuerst einen Kontoauszug als CSV hoch. Ich anonymisiere lokal im Browser und speichere nur die maskierten Umsätze.",
+    "Hi! Ich bin dein KI‑Haushalthelfer. Lade zuerst einen Kontoauszug als CSV hoch. Ich anonymisiere lokal im Browser und speichere nur die maskierten Umsätze.",
     [{ type: "file", label: "CSV auswählen", accept: ".csv,text/csv" }]
   );
 }
