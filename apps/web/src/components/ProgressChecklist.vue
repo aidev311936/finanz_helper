@@ -164,8 +164,9 @@ function handleAction(action: string, ruleId: number) {
     margin-left: 24px;
     margin-top: 4px;
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
 }
 
 .child-item {

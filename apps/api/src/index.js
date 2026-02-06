@@ -309,13 +309,13 @@ app.get("/api/masked-transactions", requireToken, async (req, res) => {
   const query = account_id
     ? `SELECT id, account_id, import_id, bank_name, booking_date, booking_date_iso,
               booking_text, booking_type, booking_amount, booking_amount_value,
-              applied_rules, anonymity_status, created_at
+              applied_rules, anonymity_status, created_on
        FROM masked_transactions
        WHERE token=$1 AND account_id=$2
        ORDER BY booking_date_iso DESC NULLS LAST, id DESC`
     : `SELECT id, account_id, import_id, bank_name, booking_date, booking_date_iso,
               booking_text, booking_type, booking_amount, booking_amount_value,
-              applied_rules, anonymity_status, created_at
+              applied_rules, anonymity_status, created_on
        FROM masked_transactions
        WHERE token=$1
        ORDER BY booking_date_iso DESC NULLS LAST, id DESC`;

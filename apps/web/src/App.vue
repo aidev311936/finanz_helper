@@ -500,6 +500,11 @@ async function onAction(value: string) {
       });
 
       userRules.value.push(newRule);
+
+      // Add the new rule to active toggles immediately
+      ruleToggles.value.add(Number(newRule.id));
+      console.log('[DEBUG] Added new rule to toggles:', newRule.id);
+
       pushAssistant(`✓ Regel "${ruleName}" erstellt!`);
 
       // Reset and re-show preview
@@ -522,8 +527,14 @@ async function onAction(value: string) {
 
   // Handle upload
   if (value === 'upload:yes') {
-    pushUser('✓ So speichern');
+    pushUser('✓ Mit Anonymisierung speichern');
     await uploadTransactions(true);
+    return;
+  }
+
+  if (value === 'upload:no') {
+    pushUser('Original ohne Anonymisierung speichern');
+    await uploadTransactions(false);
     return;
   }
 
@@ -605,7 +616,8 @@ function buildAnonymizationActions(): Action[] {
 
   actions.push(
     { type: 'button', label: '+ Neue Regel erstellen', value: 'rule:new' },
-    { type: 'button', label: '✓ So speichern', value: 'upload:yes' }
+    { type: 'button', label: '✓ Mit Anonymisierung speichern', value: 'upload:yes' },
+    { type: 'button', label: 'Original ohne Anonymisierung speichern', value: 'upload:no' }
   );
 
   return actions;
@@ -616,8 +628,24 @@ async function showAnonymizationPreview() {
 
   busy.value = true;
   try {
-    // Initialize all rules as ACTIVE (ensure IDs are Numbers!)
-    ruleToggles.value = new Set(userRules.value.map((r: any) => Number(r.id)));
+    console.log('[DEBUG] showAnonymizationPreview - Toggle size before:', ruleToggles.value.size);
+    console.log('[DEBUG] Current toggles:', Array.from(ruleToggles.value));
+    console.log('[DEBUG] User rules:', userRules.value.map((r: any) => ({ id: r.id, name: r.name })));
+
+    // Initialize toggles ONLY on first load (all rules active by default)
+    // After that, NEVER modify toggles here - let user/rule-creation manage them
+    if (ruleToggles.value.size === 0) {
+      // First time: all rules active
+      console.log('[DEBUG] First time initialization - setting all rules active');
+      ruleToggles.value = new Set(userRules.value.map((r: any) => Number(r.id)));
+    } else {
+      console.log('[DEBUG] Toggles already initialized, preserving user selection');
+      // DO NOT MODIFY TOGGLES - user has already made their selection
+      // New rules are added to toggles in the rule creation handler, not here
+    }
+
+    console.log('[DEBUG] Toggle size after:', ruleToggles.value.size);
+    console.log('[DEBUG] Final toggles:', Array.from(ruleToggles.value));
 
     // Apply all active rules (ensure Number comparison!)
     const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(Number(r.id)));
@@ -851,6 +879,8 @@ async function sendChat() {
 .table-wrapper {
   flex: 1;
   overflow-y: auto;
+  max-height: 500px;
+  /* Enable scrollbar when table exceeds this height */
 }
 
 .tx-table {

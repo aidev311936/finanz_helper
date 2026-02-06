@@ -1,45 +1,33 @@
 <template>
   <div class="actions" v-if="actions && actions.length">
     <template v-for="(a, idx) in actions" :key="idx">
-      <button
-        v-if="a.type==='button'"
-        class="chip"
-        @click="$emit('action', a.value)"
-      >
+      <button v-if="a.type === 'button'" class="chip" @click="$emit('action', a.value)">
         {{ a.label }}
       </button>
 
-      <form v-else-if="a.type==='text'" class="inline" @submit.prevent="submitText(a)">
-        <input
-          class="text"
-          :placeholder="a.placeholder || a.label"
-          v-model="textValue"
-        />
+      <form v-else-if="a.type === 'text'" class="inline" @submit.prevent="submitText(a)">
+        <input class="text" :placeholder="a.placeholder || a.label" v-model="textValue" />
         <button class="chip" type="submit">{{ a.submitLabel || 'OK' }}</button>
       </form>
 
-      <form v-else-if="a.type==='date'" class="inline" @submit.prevent="submitText(a)">
+      <form v-else-if="a.type === 'date'" class="inline" @submit.prevent="submitText(a)">
         <input class="text" type="date" v-model="textValue" />
         <button class="chip" type="submit">OK</button>
       </form>
 
-      <div v-else-if="a.type==='file'" class="inline">
+      <div v-else-if="a.type === 'file'" class="inline">
         <label class="chip file">
           {{ a.label }}
           <input type="file" :accept="a.accept" @change="onFile" />
         </label>
       </div>
 
-      <button
-        v-else-if="a.type==='toggle'"
-        class="chip toggle"
-        :class="{ active: a.active }"
-        @click="$emit('action', a.value)"
-      >
+      <button v-else-if="a.type === 'toggle'" class="chip toggle" :class="{ active: a.active }"
+        @click="$emit('action', a.value)">
         {{ a.active ? '✓' : '○' }} {{ a.label }}
       </button>
 
-      <div v-else-if="a.type==='table'" class="tableWrap">
+      <div v-else-if="a.type === 'table'" class="tableWrap">
         <table class="table" v-if="a.rows && a.rows.length">
           <thead>
             <tr>
@@ -48,11 +36,7 @@
           </thead>
           <tbody>
             <tr v-for="(r, ridx) in a.rows" :key="ridx">
-              <td
-                v-for="k in Object.keys(a.rows[0])"
-                :key="k"
-                :class="cellClass(k, r[k])"
-              >
+              <td v-for="k in Object.keys(a.rows[0])" :key="k" :class="cellClass(k, r[k])">
                 {{ formatCell(k, r[k]) }}
               </td>
             </tr>
@@ -114,17 +98,91 @@ function onFile(e: Event) {
 }
 </script>
 
-<style scoped>
-.actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
-.chip { border:1px solid #ddd; background:#fff; border-radius:999px; padding:10px 12px; font-size:14px; }
-.inline { display:flex; gap:10px; align-items:center; }
-.text { border:1px solid #ddd; border-radius:12px; padding:10px 12px; font-size:14px; min-width:220px; }
-.file input { display:none; }
-.tableWrap { width:100%; overflow:auto; border:1px solid #eee; border-radius:12px; }
-.table { border-collapse:collapse; width:100%; min-width:520px; }
-.table th, .table td { padding:10px 12px; border-bottom:1px solid #eee; text-align:left; font-size:13px; }
-.table td.num, .table th.num { text-align:right; white-space:nowrap; }
-.muted { opacity:0.7; padding:10px 12px; }
-.chip.toggle { transition: all 0.2s; cursor: pointer; }
-.chip.toggle.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+<style>
+/* ActionRenderer-specific styles - not scoped to avoid grid issues */
+.actions {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(180px, auto)) !important;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: start;
+}
+
+.actions .chip {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 999px;
+  padding: 10px 12px;
+  font-size: 14px;
+  display: inline-flex !important;
+  width: fit-content !important;
+  max-width: 100%;
+  justify-self: start;
+}
+
+.actions .chip.toggle {
+  padding: 6px 10px;
+  font-size: 13px;
+  transition: all 0.2s;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex !important;
+  width: fit-content !important;
+}
+
+.actions .chip.toggle.active {
+  background: #1a73e8;
+  color: #fff;
+  border-color: #1a73e8;
+}
+
+.actions .inline {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.actions .text {
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+  min-width: 220px;
+}
+
+.actions .file input {
+  display: none;
+}
+
+.actions .tableWrap {
+  width: 100%;
+  overflow: auto;
+  border: 1px solid #eee;
+  border-radius: 12px;
+}
+
+.actions .table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 520px;
+}
+
+.actions .table th,
+.actions .table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+  font-size: 13px;
+}
+
+.actions .table td.num,
+.actions .table th.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.actions .muted {
+  opacity: 0.7;
+  padding: 10px 12px;
+}
 </style>
