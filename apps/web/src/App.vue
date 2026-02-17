@@ -32,27 +32,76 @@
 
           <div v-if="pendingPreview" class="preview-container">
             <div class="preview-header">
-              <h3 class="preview-title">Transaktionen Vorschau ({{ displayedTransactions.length }})</h3>
+              <h3 class="preview-title">Transaktionen Vorschau ({{ previewStats.filtered }} / {{ previewStats.total }})</h3>
+              <div class="preview-stats-line">
+                <span class="stat-badge stat-anon">✓ {{ previewStats.anonymized }}</span>
+                <span class="stat-badge stat-ok">◉ {{ previewStats.ok }}</span>
+                <span class="stat-badge stat-unchecked">○ {{ previewStats.unchecked }}</span>
+              </div>
               <button class="view-toggle" @click="showOriginal = !showOriginal" :class="{ active: showOriginal }">
                 {{ showOriginal ? 'Original' : 'Anonymisiert' }}
               </button>
             </div>
+
+            <!-- Filter Bar -->
+            <div class="preview-filter-bar">
+              <div class="filter-pills">
+                <button class="filter-pill" :class="{ active: previewFilter === 'all' }" @click="previewFilter = 'all'">Alle</button>
+                <button class="filter-pill" :class="{ active: previewFilter === 'anonymized' }" @click="previewFilter = 'anonymized'">✓ Anonymisiert</button>
+                <button class="filter-pill" :class="{ active: previewFilter === 'already_anonymous' }" @click="previewFilter = 'already_anonymous'">◉ Bereits OK</button>
+                <button class="filter-pill" :class="{ active: previewFilter === 'dont_care' }" @click="previewFilter = 'dont_care'">○ Nicht geprüft</button>
+              </div>
+              <label class="hide-toggle">
+                <input type="checkbox" v-model="hideReviewed" />
+                Geprüfte ausblenden
+              </label>
+            </div>
+
             <div class="table-wrapper" @mouseup="handleTextSelection">
               <table class="tx-table">
                 <thead>
                   <tr>
+                    <th>Status</th>
                     <th>Datum</th>
                     <th>Buchungstext</th>
+                    <th>Regeln</th>
                     <th>Typ</th>
-                    <th>Betrag</th>
+                    <th class="amount-col">Betrag</th>
+                    <th class="action-col">Aktion</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(tx, idx) in displayedTransactions" :key="idx">
+                  <tr v-for="tx in displayedTransactions" :key="tx._idx"
+                      :class="{ 'completed': tx._status === 'already_anonymous' }">
+                    <td>
+                      <StatusBadge :status="tx._status" />
+                    </td>
                     <td>{{ tx.booking_date || 'N/A' }}</td>
-                    <td>{{ tx.booking_text }}</td>
-                    <td>{{ tx.booking_type }}</td>
-                    <td class="amount">{{ tx.booking_amount }}</td>
+                    <td class="text-col">{{ tx.booking_text }}</td>
+                    <td>
+                      <span v-if="tx._matchedRules.length > 0" class="rule-badge" :title="getRuleNamesForRow(tx._matchedRules).join(', ')">
+                        {{ tx._matchedRules.length }} {{ tx._matchedRules.length === 1 ? 'Regel' : 'Regeln' }}
+                      </span>
+                      <span v-else class="rule-badge empty">Keine</span>
+                    </td>
+                    <td class="type-col">{{ tx.booking_type }}</td>
+                    <td class="amount-col">{{ tx.booking_amount }}</td>
+                    <td class="action-col">
+                      <div class="action-menu" v-if="openPreviewMenuId === tx._idx" @click.stop>
+                        <div class="menu-backdrop" @click="closePreviewMenu"></div>
+                        <div class="menu-dropdown">
+                          <button class="menu-item" :disabled="tx._status === 'already_anonymous'"
+                            @click="changePreviewStatus(tx._idx, 'already_anonymous')">
+                            ◉ Als OK markieren
+                          </button>
+                          <button class="menu-item" :disabled="tx._status === 'dont_care'"
+                            @click="changePreviewStatus(tx._idx, 'dont_care')">
+                            ○ Zurücksetzen
+                          </button>
+                        </div>
+                      </div>
+                      <button class="action-button" @click.stop="togglePreviewMenu(tx._idx)">⋮</button>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -88,6 +137,7 @@ import { onMounted, ref, nextTick, computed } from "vue";
 import ActionRenderer from "./components/ActionRenderer.vue";
 import ProgressChecklist from "./components/ProgressChecklist.vue";
 import TransactionList from "./components/TransactionList.vue";
+import StatusBadge from "./components/StatusBadge.vue";
 import type { Action, ChatMessage } from "./types";
 import { ensureSession, fetchBankMappings, requestBankSupport, createAccount, createImport, uploadMaskedTransactions, sendChat as apiSendChat, fetchAnonRules, createAnonRule, deleteAnonRule } from "./api";
 import type { BankMapping } from "./lib/types";
@@ -121,10 +171,50 @@ const actionRefreshKey = ref(0);
 const selectedText = ref('');
 const selectionPosition = ref<{ x: number, y: number } | null>(null);
 
-// Computed property for transactions to display in preview
-const displayedTransactions = computed(() => {
+// Preview status tracking (index-based, pre-import)
+const previewStatuses = ref<Map<number, string>>(new Map());
+const previewMatchedRules = ref<Map<number, number[]>>(new Map());
+const previewFilter = ref<'all' | 'anonymized' | 'already_anonymous' | 'dont_care'>('all');
+const hideReviewed = ref(false);
+const openPreviewMenuId = ref<number | null>(null);
+
+// Computed: enrich preview transactions with status + matched rules
+const enrichedPreviewTransactions = computed(() => {
   if (!pendingPreview.value) return [];
-  return showOriginal.value ? pendingPreview.value.original : pendingPreview.value.anonymized;
+  const source = showOriginal.value ? pendingPreview.value.original : pendingPreview.value.anonymized;
+  return source.map((tx: any, idx: number) => ({
+    ...tx,
+    _idx: idx,
+    _status: previewStatuses.value.get(idx) || 'dont_care',
+    _matchedRules: previewMatchedRules.value.get(idx) || [],
+  }));
+});
+
+// Computed: filtered preview transactions
+const filteredPreviewTransactions = computed(() => {
+  let result = enrichedPreviewTransactions.value;
+  if (previewFilter.value !== 'all') {
+    result = result.filter((tx: any) => tx._status === previewFilter.value);
+  }
+  if (hideReviewed.value) {
+    result = result.filter((tx: any) => tx._status !== 'already_anonymous');
+  }
+  return result;
+});
+
+// Alias for template display
+const displayedTransactions = filteredPreviewTransactions;
+
+// Preview stats
+const previewStats = computed(() => {
+  const all = enrichedPreviewTransactions.value;
+  return {
+    total: all.length,
+    filtered: filteredPreviewTransactions.value.length,
+    anonymized: all.filter((t: any) => t._status === 'anonymized').length,
+    ok: all.filter((t: any) => t._status === 'already_anonymous').length,
+    unchecked: all.filter((t: any) => t._status === 'dont_care').length,
+  };
 });
 
 // Import progress tracking
@@ -370,6 +460,7 @@ async function deleteRule(ruleId: number) {
         activeRules
       );
       pendingPreview.value.anonymized = anonymized;
+      computePreviewStatuses();
     }
   } catch (e) {
     console.error(e);
@@ -391,50 +482,35 @@ async function onAction(value: string) {
 
   if (value === 'anon:skip') {
     pushUser('Nein, Original speichern');
-    await uploadTransactions(false);
+    await doImport('original');
     return;
   }
 
   // Handle rule toggle
   if (value.startsWith('toggle:')) {
-    console.log('[Toggle] Clicked:', value);
     const ruleId = Number(value.replace('toggle:', ''));
-    console.log('[Toggle] Rule ID:', ruleId);
-    console.log('[Toggle] Before:', Array.from(ruleToggles.value));
-
     if (ruleToggles.value.has(ruleId)) {
       ruleToggles.value.delete(ruleId);
     } else {
       ruleToggles.value.add(ruleId);
     }
 
-    console.log('[Toggle] After:', Array.from(ruleToggles.value));
-
     // Re-apply anonymization with updated rules
     if (pendingPreview.value) {
       const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(Number(r.id)));
-      console.log('[Toggle] Active rules count:', activeRules.length);
-
       const { data: anonymized } = await applyAnonymization(
         pendingPreview.value.original,
         activeRules
       );
       pendingPreview.value.anonymized = anonymized;
-      console.log('[Toggle] Anonymized:', anonymized.length, 'transactions');
+      computePreviewStatuses();
 
       // Update the last message's actions to reflect new toggle states
       const lastIndex = messages.value.length - 1;
       const lastMsg = messages.value[lastIndex];
       if (lastMsg && lastMsg.role === 'assistant') {
-        const newActions = buildAnonymizationActions();
-        console.log('[Toggle] New actions:', newActions);
-        messages.value[lastIndex] = {
-          ...lastMsg,
-          actions: newActions
-        };
-        // Force component re-render by updating key
+        messages.value[lastIndex] = { ...lastMsg, actions: buildAnonymizationActions() };
         actionRefreshKey.value++;
-        console.log('[Toggle] Refresh key:', actionRefreshKey.value);
       }
     }
     return;
@@ -525,16 +601,66 @@ async function onAction(value: string) {
     return;
   }
 
-  // Handle upload
+  // Handle upload - smart import with unreviewed check
   if (value === 'upload:yes') {
-    pushUser('✓ Mit Anonymisierung speichern');
-    await uploadTransactions(true);
+    pushUser('✓ Importieren');
+    const unchecked = previewStats.value.unchecked;
+    if (unchecked > 0) {
+      pushAssistant(
+        `Es gibt noch ${unchecked} ungeprüfte Umsätze. Was möchtest du tun?`,
+        [
+          { type: 'button', label: `Ja, alle ${unchecked} als OK markieren`, value: 'import:all_ok' },
+          { type: 'button', label: 'Nur geprüfte importieren', value: 'import:only_reviewed' },
+          { type: 'button', label: 'Abbrechen', value: 'import:cancel' },
+        ]
+      );
+    } else {
+      await doImport('all');
+    }
+    return;
+  }
+
+  if (value === 'import:all_ok') {
+    pushUser('Ja, alle als OK markieren');
+    // Mark all dont_care as already_anonymous
+    for (const [idx, status] of previewStatuses.value) {
+      if (status === 'dont_care') {
+        previewStatuses.value.set(idx, 'already_anonymous');
+      }
+    }
+    previewStatuses.value = new Map(previewStatuses.value);
+    await doImport('all');
+    return;
+  }
+
+  if (value === 'import:only_reviewed') {
+    pushUser('Nur geprüfte importieren');
+    await doImport('reviewed_only');
+    return;
+  }
+
+  if (value === 'import:cancel') {
+    pushUser('Abbrechen');
+    pushAssistant('OK, zurück zur Vorschau. Prüfe die Umsätze und markiere sie als OK.', buildAnonymizationActions());
     return;
   }
 
   if (value === 'upload:no') {
     pushUser('Original ohne Anonymisierung speichern');
-    await uploadTransactions(false);
+    await doImport('original');
+    return;
+  }
+
+  // Handle preview status changes
+  if (value.startsWith('preview:ok:')) {
+    const idx = Number(value.replace('preview:ok:', ''));
+    changePreviewStatus(idx, 'already_anonymous');
+    return;
+  }
+
+  if (value.startsWith('preview:reset:')) {
+    const idx = Number(value.replace('preview:reset:', ''));
+    changePreviewStatus(idx, 'dont_care');
     return;
   }
 
@@ -616,11 +742,68 @@ function buildAnonymizationActions(): Action[] {
 
   actions.push(
     { type: 'button', label: '+ Neue Regel erstellen', value: 'rule:new' },
-    { type: 'button', label: '✓ Mit Anonymisierung speichern', value: 'upload:yes' },
+    { type: 'button', label: `✓ Importieren (${previewStats.value.anonymized + previewStats.value.ok} geprüft)`, value: 'upload:yes' },
     { type: 'button', label: 'Original ohne Anonymisierung speichern', value: 'upload:no' }
   );
 
   return actions;
+}
+
+// Compute status + matched rules for each transaction after anonymization
+function computePreviewStatuses() {
+  if (!pendingPreview.value) return;
+  const orig = pendingPreview.value.original;
+  const anon = pendingPreview.value.anonymized;
+  const statuses = new Map<number, string>();
+  const matched = new Map<number, number[]>();
+  const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(Number(r.id)));
+
+  for (let i = 0; i < orig.length; i++) {
+    const wasChanged = orig[i].booking_text !== anon[i].booking_text;
+    // Preserve user-set 'already_anonymous' status
+    const currentStatus = previewStatuses.value.get(i);
+    if (currentStatus === 'already_anonymous') {
+      statuses.set(i, 'already_anonymous');
+    } else {
+      statuses.set(i, wasChanged ? 'anonymized' : 'dont_care');
+    }
+
+    // Track which rules matched this row
+    const matchedIds: number[] = [];
+    for (const rule of activeRules) {
+      try {
+        const regex = new RegExp(rule.pattern, rule.flags || 'gi');
+        if (regex.test(orig[i].booking_text)) {
+          matchedIds.push(Number(rule.id));
+        }
+      } catch { /* skip invalid regex */ }
+    }
+    matched.set(i, matchedIds);
+  }
+  previewStatuses.value = statuses;
+  previewMatchedRules.value = matched;
+}
+
+function changePreviewStatus(idx: number, newStatus: string) {
+  previewStatuses.value.set(idx, newStatus);
+  // Trigger reactivity
+  previewStatuses.value = new Map(previewStatuses.value);
+  openPreviewMenuId.value = null;
+}
+
+function togglePreviewMenu(idx: number) {
+  openPreviewMenuId.value = openPreviewMenuId.value === idx ? null : idx;
+}
+
+function closePreviewMenu() {
+  openPreviewMenuId.value = null;
+}
+
+function getRuleNamesForRow(matchedIds: number[]): string[] {
+  return matchedIds.map(id => {
+    const rule = userRules.value.find((r: any) => Number(r.id) === id);
+    return rule?.name || `Regel #${id}`;
+  });
 }
 
 async function showAnonymizationPreview() {
@@ -628,26 +811,12 @@ async function showAnonymizationPreview() {
 
   busy.value = true;
   try {
-    console.log('[DEBUG] showAnonymizationPreview - Toggle size before:', ruleToggles.value.size);
-    console.log('[DEBUG] Current toggles:', Array.from(ruleToggles.value));
-    console.log('[DEBUG] User rules:', userRules.value.map((r: any) => ({ id: r.id, name: r.name })));
-
     // Initialize toggles ONLY on first load (all rules active by default)
-    // After that, NEVER modify toggles here - let user/rule-creation manage them
-    if (ruleToggles.value.size === 0) {
-      // First time: all rules active
-      console.log('[DEBUG] First time initialization - setting all rules active');
+    if (ruleToggles.value.size === 0 && userRules.value.length > 0) {
       ruleToggles.value = new Set(userRules.value.map((r: any) => Number(r.id)));
-    } else {
-      console.log('[DEBUG] Toggles already initialized, preserving user selection');
-      // DO NOT MODIFY TOGGLES - user has already made their selection
-      // New rules are added to toggles in the rule creation handler, not here
     }
 
-    console.log('[DEBUG] Toggle size after:', ruleToggles.value.size);
-    console.log('[DEBUG] Final toggles:', Array.from(ruleToggles.value));
-
-    // Apply all active rules (ensure Number comparison!)
+    // Apply all active rules
     const activeRules = userRules.value.filter((r: any) => ruleToggles.value.has(Number(r.id)));
     const { data: anonymized } = await applyAnonymization(
       pendingPreview.value.original,
@@ -656,9 +825,12 @@ async function showAnonymizationPreview() {
 
     pendingPreview.value.anonymized = anonymized;
 
+    // Compute per-row statuses and matched rules
+    computePreviewStatuses();
+
     pushAssistant(
       userRules.value.length > 0
-        ? "Wähle welche Regeln angewendet werden sollen:"
+        ? "Regeln angewendet. Prüfe die Vorschau und markiere Umsätze als OK:"
         : "Du hast noch keine Regeln. Erstelle eine oder speichere ohne Anonymisierung:",
       buildAnonymizationActions()
     );
@@ -667,12 +839,29 @@ async function showAnonymizationPreview() {
   }
 }
 
-async function uploadTransactions(useAnon: boolean) {
+async function doImport(mode: 'all' | 'reviewed_only' | 'original') {
   if (!pendingPreview.value || !pending.value || !pendingAlias.value) return;
 
   busy.value = true;
   try {
-    const data = useAnon ? pendingPreview.value.anonymized : pendingPreview.value.original;
+    let data: any[];
+    if (mode === 'original') {
+      data = pendingPreview.value.original;
+    } else if (mode === 'reviewed_only') {
+      // Only import anonymized + already_anonymous rows
+      data = pendingPreview.value.anonymized.filter((_: any, idx: number) => {
+        const status = previewStatuses.value.get(idx);
+        return status === 'anonymized' || status === 'already_anonymous';
+      });
+    } else {
+      data = pendingPreview.value.anonymized;
+    }
+
+    if (data.length === 0) {
+      pushAssistant('⚠️ Keine Transaktionen zum Importieren. Prüfe die Vorschau.');
+      busy.value = false;
+      return;
+    }
 
     pushAssistant(`Speichere ${data.length} Transaktionen...`);
 
@@ -705,6 +894,10 @@ async function uploadTransactions(useAnon: boolean) {
     pending.value = null;
     pendingAlias.value = '';
     pendingPreview.value = null;
+    previewStatuses.value = new Map();
+    previewMatchedRules.value = new Map();
+    previewFilter.value = 'all';
+    hideReviewed.value = false;
     ruleCreationState.value = 'idle';
   } catch (e: any) {
     console.error("Upload error:", e);
@@ -979,4 +1172,158 @@ async function sendChat() {
   padding: 12px 14px;
   background: #fff;
 }
+
+/* Preview Stats */
+.preview-stats-line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.stat-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.stat-anon { background: #e8f5e9; color: #2e7d32; }
+.stat-ok { background: #e3f2fd; color: #1565c0; }
+.stat-unchecked { background: #f5f5f5; color: #757575; }
+
+/* Filter Bar */
+.preview-filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid #eee;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.filter-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-pill {
+  padding: 4px 12px;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-pill:hover { background: #f5f5f5; }
+.filter-pill.active {
+  background: #1a73e8;
+  color: #fff;
+  border-color: #1a73e8;
+}
+
+.hide-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* Rule Badges */
+.rule-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #e8f5e9;
+  color: #2e7d32;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.rule-badge.empty {
+  background: #f5f5f5;
+  color: #999;
+}
+
+/* Action Column */
+.action-col { width: 48px; text-align: center; }
+.amount-col { text-align: right; font-family: monospace; }
+.text-col { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.type-col { white-space: nowrap; }
+
+.action-button {
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  transition: all 0.2s;
+}
+
+.action-button:hover {
+  background: #f5f5f5;
+  border-color: #bbb;
+}
+
+/* Action Menu */
+.action-menu {
+  position: relative;
+}
+
+.menu-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 99;
+}
+
+.menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  z-index: 100;
+  min-width: 180px;
+  padding: 4px 0;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.menu-item:hover:not(:disabled) { background: #f5f5f5; }
+.menu-item:disabled { color: #ccc; cursor: default; }
+
+/* Completed Row */
+.tx-table tr.completed {
+  background: #f8fdf8;
+}
+
+.tx-table tr.completed td {
+  color: #666;
+}
 </style>
+
