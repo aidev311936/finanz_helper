@@ -39,11 +39,11 @@
             <table class="tx-table">
                 <thead>
                     <tr>
-                        <th>Status</th>
-                        <th>Datum</th>
-                        <th>Buchungstext</th>
-                        <th>Regeln</th>
-                        <th>Typ</th>
+                        <th class="status-col">Status</th>
+                        <th class="date-col">Datum</th>
+                        <th class="text-col">Buchungstext</th>
+                        <th class="rules-col">Regeln</th>
+                        <th class="type-col">Typ</th>
                         <th class="amount-col">Betrag</th>
                         <th class="action-col">Aktion</th>
                     </tr>
@@ -51,12 +51,12 @@
                 <tbody>
                     <tr v-for="tx in filteredTransactions" :key="tx.id"
                         :class="{ 'completed': tx.anonymity_status === 'already_anonymous' }">
-                        <td>
+                        <td class="status-col">
                             <StatusBadge :status="tx.anonymity_status" />
                         </td>
                         <td class="date-col">{{ formatDate(tx.booking_date_iso) }}</td>
                         <td class="text-col">{{ tx.booking_text }}</td>
-                        <td>
+                        <td class="rules-col">
                             <RuleBadge :rule-ids="tx.applied_rules || []" :all-rules="rules" />
                         </td>
                         <td class="type-col">{{ tx.booking_type || '-' }}</td>
@@ -457,5 +457,49 @@ async function changeStatus(txId: number, newStatus: 'dont_care' | 'anonymized' 
     color: #999;
     cursor: not-allowed;
     background: #fafafa;
+}
+
+/* ======= Responsive: Mobile ≤600px ======= */
+@media (max-width: 600px) {
+    .list-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .filter-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .tx-table {
+        font-size: 13px;
+    }
+
+    .tx-table th,
+    .tx-table td {
+        padding: 6px 8px;
+    }
+
+    /* Hide all columns except booking_text and action */
+    .tx-table th.status-col,
+    .tx-table td.status-col,
+    .tx-table th.date-col,
+    .tx-table td.date-col,
+    .tx-table th.rules-col,
+    .tx-table td.rules-col,
+    .tx-table th.type-col,
+    .tx-table td.type-col,
+    .tx-table th.amount-col,
+    .tx-table td.amount-col {
+        display: none;
+    }
+
+    .text-col {
+        max-width: none !important;
+        white-space: normal !important;
+        word-break: break-word;
+    }
 }
 </style>

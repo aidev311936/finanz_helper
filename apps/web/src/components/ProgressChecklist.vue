@@ -16,6 +16,13 @@
                 <span class="step-label">{{ step.label }}</span>
                 <span v-if="step.meta" class="step-meta">({{ step.meta }})</span>
 
+                <!-- CSV Upload button -->
+                <label v-if="step.id === 'csv' && !step.completed" class="btn-upload">
+                    CSV auswählen
+                    <input type="file" accept=".csv,text/csv" @change="onFileSelected" />
+                </label>
+
+                <!-- Alias edit button -->
                 <button v-if="step.editable && step.completed" class="btn-edit" @click="$emit('change-alias')">
                     Ändern
                 </button>
@@ -40,6 +47,8 @@
                             </button>
                         </div>
                     </div>
+                    <!-- New Rule button -->
+                    <button class="btn-new-rule" @click="$emit('new-rule')">+ Neue Regel</button>
                 </div>
             </div>
         </div>
@@ -60,12 +69,20 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: 'change-alias'): void;
     (e: 'rule-context', action: string, ruleId: number): void;
+    (e: 'file-upload', file: File): void;
+    (e: 'new-rule'): void;
 }>();
 
 const progress = computed(() => props.currentStep);
 
 function handleAction(action: string, ruleId: number) {
     emit('rule-context', action, ruleId);
+}
+
+function onFileSelected(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (file) emit('file-upload', file);
+    (event.target as HTMLInputElement).value = '';
 }
 </script>
 
@@ -204,12 +221,6 @@ function handleAction(action: string, ruleId: number) {
 .child-actions {
     display: flex;
     gap: 4px;
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.child-item:hover .child-actions {
-    opacity: 1;
 }
 
 .action-btn {
@@ -237,5 +248,42 @@ function handleAction(action: string, ruleId: number) {
     background: #ffebee;
     border-color: #e57373;
     color: #c62828;
+}
+
+.btn-upload {
+    margin-left: auto;
+    padding: 4px 12px;
+    font-size: 12px;
+    border: 1px solid #1976d2;
+    border-radius: 6px;
+    background: #e3f2fd;
+    color: #1976d2;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+.btn-upload:hover {
+    background: #1976d2;
+    color: white;
+}
+
+.btn-upload input {
+    display: none;
+}
+
+.btn-new-rule {
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px dashed #1976d2;
+    border-radius: 6px;
+    background: transparent;
+    color: #1976d2;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-new-rule:hover {
+    background: #e3f2fd;
 }
 </style>
