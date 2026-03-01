@@ -18,58 +18,11 @@ services:
         generateValue: true
       - key: SUPPORT_TOKEN
         generateValue: true
-      - key: LLM_PROVIDER
-        value: openai
-      - key: LLM_MODEL
-        value: gpt-4o-mini
-      - key: OPENAI_BASE_URL
-        value: https://api.openai.com/v1
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: GEMINI_BASE_URL
-        value: https://generativelanguage.googleapis.com/v1beta
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: LOCAL_LLM_BASE_URL
-        value: http://localhost:8000/v1
-      - key: LOCAL_LLM_API_KEY
-        sync: false
-
-  - type: worker
-    name: haushalt-worker
-    runtime: docker
-    plan: starter
-    dockerfilePath: apps/worker/Dockerfile
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: haushalt-db
-          property: connectionString
-      - key: WORKER_ID
-        value: worker-1
-      - key: LLM_PROVIDER
-        value: openai
-      - key: LLM_MODEL
-        value: gpt-4o-mini
-      - key: OPENAI_BASE_URL
-        value: https://api.openai.com/v1
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: GEMINI_BASE_URL
-        value: https://generativelanguage.googleapis.com/v1beta
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: LOCAL_LLM_BASE_URL
-        value: http://localhost:8000/v1
-      - key: LOCAL_LLM_API_KEY
-        sync: false
 
   - type: web
     name: haushalt-web
     runtime: static
-    buildCommand: cd apps/web && npm ci && npm run build
+    buildCommand: cd apps/web && npm install && npm run build
     staticPublishPath: apps/web/dist
     envVars:
       # Vite ersetzt VITE_* Variablen zur Build-Zeit.

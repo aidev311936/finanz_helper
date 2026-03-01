@@ -121,7 +121,7 @@
             <p class="hint">Lade eine CSV-Datei hoch, um die Transaktionen hier zu sehen.</p>
           </div>
 
-          <!-- Action Bar (replaces chat-based actions) -->
+          <!-- Action Bar -->
           <div v-if="pendingPreview" class="action-bar">
             <button class="action-bar-btn primary" @click="handleImportClick">
               ✓ Importieren ({{ previewStats.anonymized + previewStats.ok }} geprüft)
@@ -218,7 +218,7 @@ const showImportConfirm = ref(false);
 const showAliasModal = ref(false);
 const aliasInput = ref('');
 
-// Notification (replaces chat messages)
+// Notification
 const notification = ref<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 function notify(text: string, type: 'success' | 'error' | 'info' = 'info') {
   notification.value = { text, type };

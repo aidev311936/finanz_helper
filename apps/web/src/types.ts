@@ -4,19 +4,7 @@ export type Action =
   | { type: "date"; label: string }
   | { type: "file"; label: string; accept: string }
   | {
-      type: "table";
-      // rows: array of objects (keys are columns)
-      rows: Array<Record<string, any>>;
-    };
-
-export type ChatResponse = {
-  message: string;
-  actions?: Action[];
-  ui_hint?: "info" | "warning" | "success";
-};
-
-export type ChatMessage = {
-  role: "user" | "assistant";
-  text: string;
-  actions?: Action[];
-};
+    type: "table";
+    // rows: array of objects (keys are columns)
+    rows: Array<Record<string, any>>;
+  };
