@@ -42,22 +42,42 @@ docker compose down -v
 docker compose up --build
 ```
 
+## Umgebungsvariablen
+
+### API (`apps/api`)
+
+| Variable | Beschreibung | Pflicht |
+|---|---|---|
+| `DATABASE_URL` | Postgres Connection String | ✅ |
+| `PORT` | API-Port (default: `8080`) | – |
+| `NODE_ENV` | `production` / `development` | – |
+| `COOKIE_SECRET` | Secret für signierte Cookies (cookieParser) | ✅ in Prod |
+| `SUPPORT_TOKEN` | Auth-Token für Admin-Endpoints (`/api/support/*`) | ✅ in Prod |
+
+### Web (`apps/web`)
+
+| Variable | Beschreibung | Pflicht |
+|---|---|---|
+| `VITE_API_BASE` | URL der API (Build-Zeit, `VITE_` Prefix) | ✅ in Prod |
+
+> **Hinweis:** `VITE_API_BASE` wird von Vite zur **Build-Zeit** eingebettet. Änderungen erfordern einen Rebuild.
+
 ## Deploy
 
 ### Render.com (Static Site + Docker API)
 
 Im Repo-Root liegt eine `render.yaml` (Blueprint). Render provisioniert:
 
-- **haushalt-db** – Postgres 16
-- **haushalt-api** – Web Service (Docker)
-- **haushalt-web** – Static Site (Vite Build)
+- **haushalt-db** – Postgres 16 (Region: Frankfurt)
+- **haushalt-api** – Web Service (Docker, `dockerContext: apps/api`)
+- **haushalt-web** – Static Site (`rootDir: apps/web`, Vite Build)
 
 **Ablauf:**
 1. Repo nach GitHub pushen
 2. Render Dashboard → **Blueprints** → **New Blueprint Instance** → Repo auswählen
-3. Deploy starten
-
-**Hinweis:** `VITE_API_BASE` wird zur Build-Zeit eingebettet. Falls die API-URL sich ändert, in Render anpassen und Rebuild triggern.
+3. `COOKIE_SECRET` und `SUPPORT_TOKEN` werden automatisch generiert
+4. `VITE_API_BASE` ggf. nach erstem Deploy auf die tatsächliche API-URL anpassen
+5. Deploy starten
 
 ### Coolify (Docker Images auf Dedi)
 
