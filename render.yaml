@@ -1,11 +1,12 @@
 services:
   - type: web
     name: haushalt-api
-    runtime: docker
+    runtime: node
     plan: starter
     region: frankfurt
-    dockerfilePath: apps/api/Dockerfile
-    dockerContext: apps/api
+    rootDir: apps/api
+    buildCommand: npm install
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -36,11 +37,3 @@ services:
       # Nach dem ersten Deploy ggf. auf die tatsächliche API-URL anpassen.
       - key: VITE_API_BASE
         value: https://haushalt-api.onrender.com
-
-databases:
-  # Existierender DB-Service auf Render — wird NICHT neu erstellt.
-  # Blueprint matcht auf den Namen und verwendet die bestehende Instanz.
-  - name: haushalt-db
-    databaseName: umsatz_anonymizer
-    region: frankfurt
-    postgresMajorVersion: "18"
