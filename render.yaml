@@ -2,7 +2,7 @@ services:
   - type: web
     name: haushalt-api
     runtime: node
-    plan: starter
+    plan: free
     region: frankfurt
     rootDir: apps/api
     buildCommand: npm install
