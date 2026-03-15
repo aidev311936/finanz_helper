@@ -5,7 +5,6 @@ import crypto from "node:crypto";
 import { migrate } from "./migrate.js";
 import { ensureToken, newToken, touchToken } from "./session.js";
 import { pool } from "./db.js";
-import { handleChat } from "./chat/assistant.js";
 
 const app = express();
 
@@ -428,19 +427,6 @@ app.delete("/api/anon-rules/:id", requireToken, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/chat", requireToken, async (req, res) => {
-  const content = String(req.body?.content || "").trim();
-  if (!content) return res.status(400).json({ error: "content_required" });
-
-  try {
-    const out = await handleChat(req.token, content);
-    // Frontend expects {message, actions}
-    res.json({ message: out.message, actions: out.actions || [] });
-  } catch (e) {
-    console.error("[chat] error", e);
-    res.status(500).json({ error: "chat_failed" });
-  }
-});
 
 const port = Number(process.env.PORT || 8080);
 await migrate();

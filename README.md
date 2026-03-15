@@ -1,135 +1,106 @@
-# Haushaltmanager (Phase 1 – Step 6: Budget‑Wizard + Abo‑Zusammenfassung)
+# Finanz Helper
 
-Minimaler, lauffähiger Prototyp nach deinem Konzept:
+Anonymisierte Kontoumsätze verwalten: CSV-Import → Pseudonymisierung im Browser → Speicherung in Postgres.
 
-- UI = **Chat** (mobil‑first, wenige UI‑Elemente)
-- CSV‑Import → **lokale Pseudonymisierung/Maskierung im Browser** (ohne KI)
-- Speicherung **anonymisierter Umsätze** in Postgres
-- Kategorisierung läuft als **Job** im Worker (ohne Redis) über **austauschbaren LLM‑Provider**
-- Chat Q&A: KI nutzt **Tools (SQL)** auf anonymisierte Umsätze, stellt Rückfragen und liefert Buttons/Datepicker
-- Step 4: zusätzliche **Insights‑Tools** (Monatsübersicht, Top Händler, Fixkosten vs variabel, Sparpotenziale)
-- Step 5: **Budgets** (pro Kategorie), **Alerts** (Budget überschritten + ungewöhnliche Anstiege) und stärkere **Abo/Recurring-Erkennung** (Merchant + Betrag + Intervall)
-- Step 6: **Budget‑Wizard** (Top‑Kategorien als Buttons + Vorschlagswerte) und **Abo‑Zusammenfassung** (Buckets wie Streaming/Musik + Kündigungs‑Kandidaten)
+## Architektur
+
+| Service | Technologie | Beschreibung |
+|---|---|---|
+| **Web** | Vue 3 + Vite | SPA, mobil-first |
+| **API** | Express (Node 20) | REST-API, Migrationen, Anonymisierungsregeln |
+| **DB** | PostgreSQL 16 | Shared mit anderen Apps (z.B. Bank-Konfiguration) |
 
 ## Voraussetzungen
 
 - Docker + Docker Compose (v2)
 
-## Start
-
-Im Repo‑Root:
+## Lokale Entwicklung
 
 ```bash
 docker compose up --build
 ```
-
-Dann öffnen:
 
 - Web: http://localhost:5173
 - API: http://localhost:8080
 
 ### Session / Auth
 
-Das Frontend erstellt beim ersten Laden eine Session über `POST /api/session`, speichert den Token in `localStorage` (`hm_token`) und sendet ihn bei weiteren Requests als Header `x-token`. Dadurch funktionieren Deployments auch ohne Cookie‑Sonderfälle (SameSite/Third‑Party Cookies).
+Das Frontend erstellt beim ersten Laden eine Session über `POST /api/session`, speichert den Token in `localStorage` (`hm_token`) und sendet ihn bei weiteren Requests als Header `x-token`.
 
-> Postgres läuft als eigener Service im Compose und hat einen Healthcheck. API/Worker starten erst, wenn die DB „ready“ ist.
-
-## Stop
+### Stop
 
 ```bash
 docker compose down
 ```
 
-## Reset (Datenbank komplett leeren)
+### Reset (Datenbank komplett leeren)
 
-⚠️ Löscht das Postgres‑Volume (alle Daten):
+⚠️ Löscht das Postgres-Volume (alle Daten):
 
 ```bash
 docker compose down -v
 docker compose up --build
 ```
 
-## Konfiguration (LLM Provider)
+## Umgebungsvariablen
 
-Die wichtigsten ENV‑Variablen stehen in `docker-compose.yml` (bei `api` **und** `worker`):
+### API (`apps/anonymizer/api`)
 
-| Variable | Bedeutung |
-|---|---|
-| `LLM_PROVIDER` | `openai` · `gemini` · `local` (OpenAI‑kompatibel) |
-| `LLM_MODEL` | Modellname (z.B. `gpt-4o-mini` oder `gemini-1.5-flash`) |
-| `OPENAI_API_KEY` | API‑Key für OpenAI |
-| `GEMINI_API_KEY` | API‑Key für Gemini |
-| `LOCAL_LLM_BASE_URL` | OpenAI‑kompatible Base URL (z.B. `http://localhost:8000/v1`) |
-| `LOCAL_LLM_API_KEY` | optionaler Key |
+| Variable | Beschreibung | Pflicht |
+|---|---|---|
+| `DATABASE_URL` | Postgres Connection String | ✅ |
+| `PORT` | API-Port (default: `8080`) | – |
+| `NODE_ENV` | `production` / `development` | – |
+| `COOKIE_SECRET` | Secret für signierte Cookies (cookieParser) | ✅ in Prod |
+| `SUPPORT_TOKEN` | Auth-Token für Admin-Endpoints (`/api/support/*`) | ✅ in Prod |
 
-**Wichtig:** Für echten Betrieb Keys in eine `.env` auslagern (nicht einchecken).
+### Web (`apps/anonymizer/web`)
 
-## Beispiel‑Fragen
+| Variable | Beschreibung | Pflicht |
+|---|---|---|
+| `VITE_API_BASE` | URL der API (Build-Zeit, `VITE_` Prefix) | ✅ in Prod |
 
-- „Welche Abos waren im September 2025 am teuersten?“
-- „Zeig mir alle Ausgaben am 2025-09-17“
-- „Welche Monate habe ich überhaupt hochgeladen?“
+> **Hinweis:** `VITE_API_BASE` wird von Vite zur **Build-Zeit** eingebettet. Änderungen erfordern einen Rebuild.
 
-**Step 4 (Insights):**
+## Deploy
 
-- „Gib mir eine Monatsübersicht für 2025-09“
-- „Top Händler im 2025-09“
-- „Wie hoch waren meine Fixkosten vs variablen Kosten im 2025-09?“
-- „Wo kann ich im 2025-09 sparen?“
-- „Zeig mir alle Abos im 2025-09“
+### Render.com (Static Site + Docker API)
 
-**Step 5 (Budgets & Alerts):**
+Im Repo-Root liegt eine `render.yaml` (Blueprint). Render provisioniert:
 
-- „Zeig mir meine Budgets“
-- „Setze ein Budget für Lebensunterhalt>Einkauf>Supermarkt auf 250“
-- „Welche Warnungen gibt es für 2025-09?“
-- „Habe ich doppelte Abos im 2025-09?“
-
-**Step 6 (Wizards in der UI):**
-
-Nach dem Import siehst du Buttons:
-
-- „Monatsübersicht“ → Monat auswählen (Buttons) → Tabellen (Top‑Kategorien, Konten)
-- „Budgets vorschlagen“ → Monat auswählen → Vorschlagswerte + „Budget setzen …“ Buttons
-- „Abos prüfen“ → Monat auswählen → Abo‑Buckets + teure/duplizierte Kandidaten
-
-Optional auch per Chat:
-
-- `intent:budget_wizard`
-- `intent:subscriptions_overview`
-
-## Deploy auf Render.com
-
-Dieses Repo ist als Multi‑Service App gedacht. Render startet **kein** `docker-compose.yml` direkt – du legst stattdessen Services an:
-
-- **Postgres** (Render Managed DB)
-- **API** (Web Service, Docker)
-- **Worker** (Background Worker, Docker)
-- **Web** (Static Site, Vite Build)
-
-### Option 1: Blueprint (empfohlen)
-
-Im Repo‑Root liegt eine fertige `render.yaml`. Render Blueprints lesen diese Datei und provisionieren die Ressourcen automatisch.
+- **haushalt-db** – Postgres 16 (Region: Frankfurt)
+- **haushalt-api** – Web Service (Docker, `dockerContext: apps/anonymizer/api`)
+- **haushalt-web** – Static Site (`rootDir: apps/anonymizer/web`, Vite Build)
 
 **Ablauf:**
 1. Repo nach GitHub pushen
 2. Render Dashboard → **Blueprints** → **New Blueprint Instance** → Repo auswählen
-3. Bei Secrets wirst du u.a. nach `OPENAI_API_KEY` / `GEMINI_API_KEY` gefragt (je nach Provider)
-4. Deploy starten
+3. `COOKIE_SECRET` und `SUPPORT_TOKEN` werden automatisch generiert
+4. `VITE_API_BASE` ggf. nach erstem Deploy auf die tatsächliche API-URL anpassen
+5. Deploy starten
 
-**Wichtig (Frontend URL):** `VITE_API_BASE` wird von Vite **zur Build‑Zeit** eingebettet. Nur Variablen mit `VITE_` Prefix sind im Browser sichtbar.  
-Wenn du den API‑Service anders nennst oder eine Custom Domain nutzt, setze `VITE_API_BASE` entsprechend und triggere einen Rebuild des Static Sites.
+### Coolify (Docker Images auf Dedi)
 
-### Option 2: Manuell (ohne Blueprint)
+Beide Dockerfiles sind production-ready:
 
-1. Render → New → **PostgreSQL** anlegen
-2. Render → New → **Web Service** (Docker) für `apps/api`
-   - Dockerfile: `apps/api/Dockerfile`
-   - Env: `DATABASE_URL` = Render DB connectionString, `OPENAI_API_KEY` etc.
-   - Health Check Path: `/health`
-3. Render → New → **Background Worker** (Docker) für `apps/worker`
-4. Render → New → **Static Site** für `apps/web`
-   - Build: `cd apps/web && npm ci && npm run build`
-   - Publish: `apps/web/dist`
-   - Env: `VITE_API_BASE=https://<dein-api>.onrender.com`
+- `apps/anonymizer/api/Dockerfile` → Node 20 + Express
+- `apps/anonymizer/web/Dockerfile` → Multi-Stage (Vite Build → nginx)
 
+Für die Web-App muss `VITE_API_BASE` als Build-Arg übergeben werden:
+
+```bash
+docker build --build-arg VITE_API_BASE=https://api.example.com -t finanz-web ./apps/anonymizer/web
+```
+
+## Datenbank
+
+Die DB wird mit anderen Apps geteilt. Migrationen laufen automatisch beim API-Start (`apps/anonymizer/api/migrations/`).
+
+Tabellen dieser App:
+- `user_tokens` – Sessions
+- `accounts` – Konten pro User
+- `imports` – Import-Batches
+- `masked_transactions` – Anonymisierte Umsätze
+- `anon_rules` – Anonymisierungsregeln pro User
+- `bank_mapping` – CSV-Spalten-Mappings (shared, auch von externer App befüllt)
+- `bank_format_requests` – Anfragen für unbekannte Bankformate

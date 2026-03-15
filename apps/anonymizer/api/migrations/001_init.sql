@@ -84,32 +84,6 @@ CREATE TABLE IF NOT EXISTS bank_format_requests (
   created_on TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS chat_messages (
-  id BIGSERIAL PRIMARY KEY,
-  token TEXT NOT NULL REFERENCES user_tokens(token) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
-  content TEXT NOT NULL,
-  created_on TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_chat_token_created ON chat_messages(token, created_on DESC);
-
-CREATE TABLE IF NOT EXISTS jobs (
-  id BIGSERIAL PRIMARY KEY,
-  token TEXT NOT NULL REFERENCES user_tokens(token) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed')),
-  attempts INTEGER NOT NULL DEFAULT 0,
-  run_after TIMESTAMPTZ NOT NULL DEFAULT now(),
-  locked_at TIMESTAMPTZ,
-  locked_by TEXT,
-  last_error TEXT,
-  created_on TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_on TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_jobs_ready ON jobs(status, run_after);
 
 CREATE TABLE IF NOT EXISTS _migrations(
   id TEXT PRIMARY KEY,
@@ -137,10 +111,6 @@ CREATE TRIGGER trg_tx_updated
 
 CREATE TRIGGER trg_bank_mapping_updated
   BEFORE UPDATE ON bank_mapping
-  FOR EACH ROW EXECUTE FUNCTION set_row_updated_on();
-
-CREATE TRIGGER trg_jobs_updated
-  BEFORE UPDATE ON jobs
   FOR EACH ROW EXECUTE FUNCTION set_row_updated_on();
 
 -- Seed: a generic 4-column mapping (no header) for quick testing

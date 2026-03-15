@@ -110,15 +110,6 @@ export async function uploadMaskedTransactions(payload: {
 }
 
 
-export async function sendChat(content: string): Promise<{ message: string; actions?: any[] }> {
-  const r = await authFetch(`/api/chat`, {
-    method: "POST",
-    body: JSON.stringify({ content }),
-  });
-  if (!r.ok) throw new Error(`chat_failed_${r.status}`);
-  return await r.json();
-}
-
 // Transform API response to AnonRule format
 function transformRule(apiRule: any): any {
   return {
