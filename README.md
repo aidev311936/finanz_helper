@@ -1,31 +1,40 @@
 # Finanz Helper
 
-Anonymisierte Kontoumsätze verwalten: CSV-Import → Pseudonymisierung im Browser → Speicherung in Postgres.
+Monorepo für Finanz-Tools: Anonymisierung und KI-Beratung von Kontoumsätzen.
 
-## Architektur
+## Apps
 
-| Service | Technologie | Beschreibung |
-|---|---|---|
-| **Web** | Vue 3 + Vite | SPA, mobil-first |
-| **API** | Express (Node 20) | REST-API, Migrationen, Anonymisierungsregeln |
-| **DB** | PostgreSQL 16 | Shared mit anderen Apps (z.B. Bank-Konfiguration) |
+| App | Service | Technologie | Port | Beschreibung |
+|-----|---------|-------------|------|-------------|
+| **Anonymizer** | API | Express (Node 20) | 8080 | REST-API, CSV-Import, Anonymisierungsregeln |
+| | Web | Vue 3 + Vite | 5173 | SPA, mobil-first |
+| **Sparbot** | API | Express (Node 20) | 8081 | Chat-API, Multi-LLM (OpenAI/Gemini/Claude) |
+| | Web | Vue 3 + Vite | 5174 | Chat-UI, Onboarding, Action-Buttons |
+| **DB** | | PostgreSQL 16 | 5432 | Shared zwischen allen Apps |
 
 ## Voraussetzungen
 
 - Docker + Docker Compose (v2)
+- LLM API Key (OpenAI, Gemini oder Anthropic) für Sparbot
 
 ## Lokale Entwicklung
 
 ```bash
+# .env Datei erstellen (siehe .env.example)
+cp .env.example .env
+# API Keys eintragen
+
 docker compose up --build
 ```
 
-- Web: http://localhost:5173
-- API: http://localhost:8080
+- Anonymizer Web: http://localhost:5173
+- Anonymizer API: http://localhost:8080
+- Sparbot Web: http://localhost:5174
+- Sparbot API: http://localhost:8081
 
 ### Session / Auth
 
-Das Frontend erstellt beim ersten Laden eine Session über `POST /api/session`, speichert den Token in `localStorage` (`hm_token`) und sendet ihn bei weiteren Requests als Header `x-token`.
+Beide Apps teilen die gleiche `user_tokens`-Tabelle. Das Frontend erstellt beim ersten Laden eine Session über `POST /api/session`, speichert den Token in `localStorage` und sendet ihn bei weiteren Requests als Header `x-token`.
 
 ### Stop
 
@@ -44,7 +53,7 @@ docker compose up --build
 
 ## Umgebungsvariablen
 
-### API (`apps/anonymizer/api`)
+### Anonymizer API (`apps/anonymizer/api`)
 
 | Variable | Beschreibung | Pflicht |
 |---|---|---|
@@ -54,53 +63,86 @@ docker compose up --build
 | `COOKIE_SECRET` | Secret für signierte Cookies (cookieParser) | ✅ in Prod |
 | `SUPPORT_TOKEN` | Auth-Token für Admin-Endpoints (`/api/support/*`) | ✅ in Prod |
 
-### Web (`apps/anonymizer/web`)
+### Anonymizer Web (`apps/anonymizer/web`)
 
 | Variable | Beschreibung | Pflicht |
 |---|---|---|
-| `VITE_API_BASE` | URL der API (Build-Zeit, `VITE_` Prefix) | ✅ in Prod |
+| `VITE_API_BASE` | URL der Anonymizer-API (Build-Zeit) | ✅ in Prod |
+
+### Sparbot API (`apps/sparbot/api`)
+
+| Variable | Beschreibung | Pflicht |
+|---|---|---|
+| `DATABASE_URL` | Postgres Connection String | ✅ |
+| `PORT` | API-Port (default: `8081`) | – |
+| `COOKIE_SECRET` | Secret für signierte Cookies | ✅ in Prod |
+| `LLM_PROVIDER` | `openai` / `gemini` / `anthropic` | ✅ |
+| `LLM_MODEL` | Model override (optional) | – |
+| `OPENAI_API_KEY` | OpenAI API Key | wenn `LLM_PROVIDER=openai` |
+| `GEMINI_API_KEY` | Gemini API Key | wenn `LLM_PROVIDER=gemini` |
+| `ANTHROPIC_API_KEY` | Anthropic API Key | wenn `LLM_PROVIDER=anthropic` |
+| `LLM_DAILY_REQUEST_LIMIT` | Max Anfragen/User/Tag (default: 50) | – |
+| `LLM_DAILY_TOKEN_LIMIT` | Max Tokens/User/Tag (default: 100000) | – |
+
+### Sparbot Web (`apps/sparbot/web`)
+
+| Variable | Beschreibung | Pflicht |
+|---|---|---|
+| `VITE_API_BASE` | URL der Sparbot-API (Build-Zeit) | ✅ in Prod |
 
 > **Hinweis:** `VITE_API_BASE` wird von Vite zur **Build-Zeit** eingebettet. Änderungen erfordern einen Rebuild.
 
+> **LLM-Provider wechseln:** `LLM_PROVIDER` in `.env` ändern → `docker compose restart sparbot-api`
+
 ## Deploy
 
-### Render.com (Static Site + Docker API)
+### Render.com
 
 Im Repo-Root liegt eine `render.yaml` (Blueprint). Render provisioniert:
 
 - **haushalt-db** – Postgres 16 (Region: Frankfurt)
-- **haushalt-api** – Web Service (Docker, `dockerContext: apps/anonymizer/api`)
-- **haushalt-web** – Static Site (`rootDir: apps/anonymizer/web`, Vite Build)
+- **haushalt-api** – Anonymizer API (`rootDir: apps/anonymizer/api`)
+- **haushalt-web** – Anonymizer Web (`rootDir: apps/anonymizer/web`)
+- **sparbot-api** – Sparbot API (`rootDir: apps/sparbot/api`)
+- **sparbot-web** – Sparbot Web (`rootDir: apps/sparbot/web`)
 
 **Ablauf:**
 1. Repo nach GitHub pushen
 2. Render Dashboard → **Blueprints** → **New Blueprint Instance** → Repo auswählen
-3. `COOKIE_SECRET` und `SUPPORT_TOKEN` werden automatisch generiert
+3. `LLM_PROVIDER` + entsprechenden API Key manuell setzen
 4. `VITE_API_BASE` ggf. nach erstem Deploy auf die tatsächliche API-URL anpassen
 5. Deploy starten
 
 ### Coolify (Docker Images auf Dedi)
 
-Beide Dockerfiles sind production-ready:
+Alle Dockerfiles sind production-ready:
 
 - `apps/anonymizer/api/Dockerfile` → Node 20 + Express
 - `apps/anonymizer/web/Dockerfile` → Multi-Stage (Vite Build → nginx)
+- `apps/sparbot/api/Dockerfile` → Node 20 + Express
+- `apps/sparbot/web/Dockerfile` → Multi-Stage (Vite Build → nginx)
 
-Für die Web-App muss `VITE_API_BASE` als Build-Arg übergeben werden:
+Für Web-Apps muss `VITE_API_BASE` als Build-Arg übergeben werden:
 
 ```bash
 docker build --build-arg VITE_API_BASE=https://api.example.com -t finanz-web ./apps/anonymizer/web
+docker build --build-arg VITE_API_BASE=https://sparbot-api.example.com -t sparbot-web ./apps/sparbot/web
 ```
 
 ## Datenbank
 
-Die DB wird mit anderen Apps geteilt. Migrationen laufen automatisch beim API-Start (`apps/anonymizer/api/migrations/`).
+Die DB wird von allen Apps geteilt. Migrationen laufen automatisch beim API-Start.
 
-Tabellen dieser App:
-- `user_tokens` – Sessions
+### Anonymizer-Tabellen (`apps/anonymizer/api/migrations/`)
+- `user_tokens` – Sessions (shared)
 - `accounts` – Konten pro User
 - `imports` – Import-Batches
 - `masked_transactions` – Anonymisierte Umsätze
 - `anon_rules` – Anonymisierungsregeln pro User
-- `bank_mapping` – CSV-Spalten-Mappings (shared, auch von externer App befüllt)
+- `bank_mapping` – CSV-Spalten-Mappings
 - `bank_format_requests` – Anfragen für unbekannte Bankformate
+
+### Sparbot-Tabellen (`apps/sparbot/api/migrations/`)
+- `sparbot_profiles` – User-Profil (Name, Ansprache, Summary-Cache)
+- `sparbot_messages` – Chatverlauf
+- `sparbot_usage` – LLM Token-Nutzung pro Tag
