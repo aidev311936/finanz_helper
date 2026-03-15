@@ -44,7 +44,7 @@ docker compose up --build
 
 ## Umgebungsvariablen
 
-### API (`apps/api`)
+### API (`apps/anonymizer/api`)
 
 | Variable | Beschreibung | Pflicht |
 |---|---|---|
@@ -54,7 +54,7 @@ docker compose up --build
 | `COOKIE_SECRET` | Secret für signierte Cookies (cookieParser) | ✅ in Prod |
 | `SUPPORT_TOKEN` | Auth-Token für Admin-Endpoints (`/api/support/*`) | ✅ in Prod |
 
-### Web (`apps/web`)
+### Web (`apps/anonymizer/web`)
 
 | Variable | Beschreibung | Pflicht |
 |---|---|---|
@@ -69,8 +69,8 @@ docker compose up --build
 Im Repo-Root liegt eine `render.yaml` (Blueprint). Render provisioniert:
 
 - **haushalt-db** – Postgres 16 (Region: Frankfurt)
-- **haushalt-api** – Web Service (Docker, `dockerContext: apps/api`)
-- **haushalt-web** – Static Site (`rootDir: apps/web`, Vite Build)
+- **haushalt-api** – Web Service (Docker, `dockerContext: apps/anonymizer/api`)
+- **haushalt-web** – Static Site (`rootDir: apps/anonymizer/web`, Vite Build)
 
 **Ablauf:**
 1. Repo nach GitHub pushen
@@ -83,18 +83,18 @@ Im Repo-Root liegt eine `render.yaml` (Blueprint). Render provisioniert:
 
 Beide Dockerfiles sind production-ready:
 
-- `apps/api/Dockerfile` → Node 20 + Express
-- `apps/web/Dockerfile` → Multi-Stage (Vite Build → nginx)
+- `apps/anonymizer/api/Dockerfile` → Node 20 + Express
+- `apps/anonymizer/web/Dockerfile` → Multi-Stage (Vite Build → nginx)
 
 Für die Web-App muss `VITE_API_BASE` als Build-Arg übergeben werden:
 
 ```bash
-docker build --build-arg VITE_API_BASE=https://api.example.com -t finanz-web ./apps/web
+docker build --build-arg VITE_API_BASE=https://api.example.com -t finanz-web ./apps/anonymizer/web
 ```
 
 ## Datenbank
 
-Die DB wird mit anderen Apps geteilt. Migrationen laufen automatisch beim API-Start (`apps/api/migrations/`).
+Die DB wird mit anderen Apps geteilt. Migrationen laufen automatisch beim API-Start (`apps/anonymizer/api/migrations/`).
 
 Tabellen dieser App:
 - `user_tokens` – Sessions

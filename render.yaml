@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    rootDir: apps/api
+    rootDir: apps/anonymizer/api
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
@@ -25,7 +25,7 @@ services:
   - type: web
     name: haushalt-web
     runtime: static
-    rootDir: apps/web
+    rootDir: apps/anonymizer/web
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     routes:

@@ -17,7 +17,7 @@ services:
 
   api:
     build:
-      context: ./apps/api
+      context: ./apps/anonymizer/api
     environment:
       NODE_ENV: development
       PORT: 8080
@@ -37,7 +37,7 @@ services:
 
   web:
     build:
-      context: ./apps/web
+      context: ./apps/anonymizer/web
       target: build
     command: [ "npx", "vite", "--host", "0.0.0.0", "--port", "5173" ]
     environment:
