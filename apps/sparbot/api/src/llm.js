@@ -35,7 +35,7 @@ async function geminiChat({ systemPrompt, messages, maxTokens }) {
         baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     });
     const res = await client.chat.completions.create({
-        model: process.env.LLM_MODEL || "gemini-2.0-flash",
+        model: process.env.LLM_MODEL || "gemini-2.5-flash",
         max_tokens: maxTokens,
         messages: [
             { role: "system", content: systemPrompt },
