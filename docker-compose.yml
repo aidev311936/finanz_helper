@@ -42,6 +42,7 @@ services:
     command: [ "npx", "vite", "--host", "0.0.0.0", "--port", "5173" ]
     environment:
       VITE_API_BASE: http://localhost:8080
+      VITE_SPARBOT_URL: http://localhost:5174
     ports:
       - "5173:5173"
     depends_on:

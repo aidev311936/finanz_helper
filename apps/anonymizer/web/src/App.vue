@@ -3,13 +3,18 @@
     <header class="top">
       <div class="brand">Haushalthelfer</div>
       <div class="sub">Minimiere Ausgaben – ohne Tabellen-Chaos.</div>
-      <div class="view-tabs">
-        <button class="view-tab" :class="{ active: currentView === 'import' }" @click="currentView = 'import'">
-          Import
-        </button>
-        <button class="view-tab" :class="{ active: currentView === 'saved' }" @click="currentView = 'saved'">
-          Gespeicherte Transaktionen
-        </button>
+      <div class="header-bottom">
+        <div class="view-tabs">
+          <button class="view-tab" :class="{ active: currentView === 'import' }" @click="currentView = 'import'">
+            Import
+          </button>
+          <button class="view-tab" :class="{ active: currentView === 'saved' }" @click="currentView = 'saved'">
+            Gespeicherte Transaktionen
+          </button>
+        </div>
+        <a v-if="sparbotUrl" :href="sparbotUrl" target="_blank" rel="noopener" class="sparbot-link">
+          🤖 Sparbot öffnen
+        </a>
       </div>
     </header>
 
@@ -193,6 +198,15 @@ import { ensureSession, fetchBankMappings, createAccount, createImport, uploadMa
 import type { BankMapping } from "./lib/types";
 import { detectBankAndPrepare, buildOriginalTransactions } from "./lib/importPipeline";
 import { applyAnonymization } from "./lib/anonymize";
+
+const SPARBOT_BASE = import.meta.env.VITE_SPARBOT_URL || '';
+
+const sparbotUrl = computed(() => {
+  if (!SPARBOT_BASE) return '';
+  const token = localStorage.getItem('hm_token');
+  if (!token) return SPARBOT_BASE;
+  return `${SPARBOT_BASE}?token=${encodeURIComponent(token)}`;
+});
 
 const busy = ref(false);
 const currentView = ref<'import' | 'saved'>('import');
@@ -753,10 +767,17 @@ async function doImport(mode: 'all' | 'reviewed_only' | 'original') {
   margin-top: 4px;
 }
 
+.header-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .view-tabs {
   display: flex;
   gap: 8px;
-  margin-top: 12px;
 }
 
 .view-tab {
@@ -780,6 +801,28 @@ async function doImport(mode: 'all' | 'reviewed_only' | 'original') {
   color: white;
   border-color: #1976d2;
   font-weight: 500;
+}
+
+.sparbot-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  border: 1px solid #7c3aed;
+  border-radius: 8px;
+  background: #f5f3ff;
+  color: #7c3aed;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.sparbot-link:hover {
+  background: #7c3aed;
+  color: #fff;
 }
 
 .content-area {

@@ -68,6 +68,7 @@ docker compose up --build
 | Variable | Beschreibung | Pflicht |
 |---|---|---|
 | `VITE_API_BASE` | URL der Anonymizer-API (Build-Zeit) | ✅ in Prod |
+| `VITE_SPARBOT_URL` | URL der Sparbot-Web-App (Link im Anonymizer-Header) | – |
 
 ### Sparbot API (`apps/sparbot/api`)
 

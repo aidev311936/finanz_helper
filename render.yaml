@@ -37,6 +37,8 @@ services:
       # Nach dem ersten Deploy ggf. auf die tatsächliche API-URL anpassen.
       - key: VITE_API_BASE
         value: https://haushalt-api.onrender.com
+      - key: VITE_SPARBOT_URL
+        value: https://sparbot-web.onrender.com
 
   - type: web
     name: sparbot-api
